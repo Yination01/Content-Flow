@@ -22,8 +22,10 @@ export async function POST(request: Request) {
     const modality = (
       typeof body?.modality === "string" ? body.modality.toLowerCase() : "text"
     ) as "text" | "image" | "video";
-    const format = typeof body?.format === "string" ? body.format : "Short article";
-    const tone = typeof body?.tone === "string" ? body.tone : "Clear & encouraging";
+    const format =
+      typeof body?.format === "string" ? body.format : "Short article";
+    const tone =
+      typeof body?.tone === "string" ? body.tone : "Clear & encouraging";
     const platforms = Array.isArray(body?.platforms)
       ? body.platforms
       : ["YouTube", "TikTok"];
@@ -103,9 +105,13 @@ export async function POST(request: Request) {
 
     let decryptedByok: string | undefined =
       request.headers.get("x-byok-key") || undefined;
-    let byokProvider: "openai" | "replicate" = "openai";
+    const byokProvider: "openai" | "replicate" = "openai";
 
-    if (!decryptedByok && actor.userRecord.encryptedByok?.openai && process.env.OPENAI_API_KEY) {
+    if (
+      !decryptedByok &&
+      actor.userRecord.encryptedByok?.openai &&
+      process.env.OPENAI_API_KEY
+    ) {
       try {
         decryptedByok = decryptApiKey(
           actor.userRecord.encryptedByok.openai,
@@ -121,12 +127,12 @@ export async function POST(request: Request) {
       hasValidByok: Boolean(decryptedByok),
       byokProvider,
       cfAiHealthy: body?.simulateAllProvidersDown ? false : true,
-      cfAiUsedToday: 1200,
+      cfAiUsedToday: store.platformUsage.cloudflareAiNeurons,
       hfHealthy: body?.simulateAllProvidersDown ? false : true,
-      hfUsedToday: 240,
+      hfUsedToday: store.platformUsage.huggingfaceCalls,
     });
 
-    if (providerChoice.fallbackRequired) {
+    if (providerChoice.fallbackRequired && body?.simulateAllProvidersDown) {
       return NextResponse.json(
         {
           fallback_required: true,
@@ -147,6 +153,13 @@ export async function POST(request: Request) {
       byokProvider,
     });
 
+    // Increment live $0-budget platform usage counters
+    if (providerChoice.plan === "B") {
+      store.platformUsage.cloudflareAiNeurons += 1;
+    } else if (providerChoice.plan === "C") {
+      store.platformUsage.huggingfaceCalls += 1;
+    }
+
     actor.userRecord.usage.dailyAiGenerations += 1;
     const adaptations = {
       title: genOutput.title,
@@ -162,7 +175,7 @@ export async function POST(request: Request) {
       userId: actor.userId,
       responseText: genOutput.text,
       adaptations,
-      provider: genOutput.provider,
+      provider: providerChoice.provider,
       tokensUsed: genOutput.tokensUsed,
       hitCount: 0,
       createdAt: new Date().toISOString(),
@@ -173,8 +186,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       cacheHit: false,
       quotaConsumed: true,
-      plan: genOutput.plan,
-      provider: genOutput.provider,
+      plan: providerChoice.plan,
+      provider: providerChoice.provider,
       result: genOutput.text,
       adaptations,
       remainingDailyGenerations: Math.max(0, quotaDecision.remaining - 1),

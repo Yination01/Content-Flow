@@ -4,7 +4,7 @@ import {
   evaluatePlatformBudget,
   PLATFORM_BUDGET_LIMITS,
 } from "@/lib/policy";
-import { extractActorFromRequest } from "@/lib/server/store";
+import { extractActorFromRequest, getApiStore } from "@/lib/server/store";
 
 export async function GET(request: Request) {
   const actor = extractActorFromRequest(request);
@@ -15,14 +15,19 @@ export async function GET(request: Request) {
     );
   }
 
+  const store = getApiStore();
+  const u = store.platformUsage;
+
   return NextResponse.json({
     limits: PLATFORM_BUDGET_LIMITS,
+    usage: u,
     metrics: [
-      evaluatePlatformBudget("CF_AI", 5760, "PRO"),
-      evaluatePlatformBudget("R2_READS", 296000, "PRO"),
-      evaluatePlatformBudget("YOUTUBE_API", 6720, "PRO"),
-      evaluatePlatformBudget("TIKTOK_API", 340, "PRO"),
-      evaluatePlatformBudget("HUGGINGFACE_API", 420, "PRO"),
+      evaluatePlatformBudget("CF_AI", u.cloudflareAiNeurons, "PRO"),
+      evaluatePlatformBudget("R2_READS", u.r2Reads, "PRO"),
+      evaluatePlatformBudget("R2_WRITES", u.r2Writes, "PRO"),
+      evaluatePlatformBudget("YOUTUBE_API", u.youtubeUnits, "PRO"),
+      evaluatePlatformBudget("TIKTOK_API", u.tiktokCalls, "PRO"),
+      evaluatePlatformBudget("HUGGINGFACE_API", u.huggingfaceCalls, "PRO"),
     ],
   });
 }

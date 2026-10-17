@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ContentFlow Quick Capture</title>
+    <style>
+      :root {
+        --bg: #f8f7f3;
+        --surface: #ffffff;
+        --ink: #17172a;
+        --muted: #686878;
+        --line: #e4e2dc;
+        --primary: #5b4fe9;
+      }
+      body {
+        width: 360px;
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      h1 {
+        font-size: 1rem;
+        margin: 0;
+      }
+      label {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        margin: 10px 0 4px;
+      }
+      input, textarea, select {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+        font-size: 0.82rem;
+        background: var(--surface);
+      }
+      textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      button {
+        flex: 1;
+        min-height: 38px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+      }
+      #status {
+        margin-top: 10px;
+        font-size: 0.76rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ContentFlow Capture</h1>
+      <small>v1.0</small>
+    </header>
+    <label for="apiBase">Workspace URL</label>
+    <input id="apiBase" type="url" value="http://localhost:3000" />
+    <label for="prompt">Idea or captured note</label>
+    <textarea id="prompt" placeholder="Highlight text on a page or write a quick idea..."></textarea>
+    <div class="actions">
+      <button id="generateBtn" type="button">Generate Variant</button>
+      <button id="saveBtn" class="primary" type="button">Save Draft</button>
+    </div>
+    <p id="status" role="status">Ready to capture.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

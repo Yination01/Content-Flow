@@ -127,6 +127,18 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+export interface PlatformUsageSnapshot {
+  cloudflareAiNeurons: number;
+  huggingfaceCalls: number;
+  r2Reads: number;
+  r2Writes: number;
+  youtubeUnits: number;
+  tiktokCalls: number;
+  vercelInvocations: number;
+  supabaseMau: number;
+  bandwidthGb: number;
+}
+
 export interface ApiStore {
   users: Map<string, UserAccountRecord>;
   contents: Map<string, ContentRecord>;
@@ -136,6 +148,7 @@ export interface ApiStore {
   processedWebhooks: Set<string>;
   moderationItems: Map<string, ModerationItemRecord>;
   auditLogs: AuditLogEntry[];
+  platformUsage: PlatformUsageSnapshot;
 }
 
 const DB_FILE_PATH = path.join(process.cwd(), ".data", "contentflow-db.json");
@@ -419,6 +432,17 @@ function createDefaultStore(): ApiStore {
     processedWebhooks: new Set(),
     moderationItems,
     auditLogs: [],
+    platformUsage: {
+      cloudflareAiNeurons: 1200,
+      huggingfaceCalls: 240,
+      r2Reads: 12000,
+      r2Writes: 3400,
+      youtubeUnits: 800,
+      tiktokCalls: 120,
+      vercelInvocations: 15,
+      supabaseMau: 140,
+      bandwidthGb: 0.12,
+    },
   };
 }
 
@@ -429,6 +453,7 @@ function loadStoreFromDisk(): ApiStore {
   try {
     if (fs.existsSync(DB_FILE_PATH)) {
       const raw = JSON.parse(fs.readFileSync(DB_FILE_PATH, "utf8"));
+      const defaults = createDefaultStore();
       return {
         users: new Map(raw.users || []),
         contents: new Map(raw.contents || []),
@@ -438,6 +463,7 @@ function loadStoreFromDisk(): ApiStore {
         processedWebhooks: new Set(raw.processedWebhooks || []),
         moderationItems: new Map(raw.moderationItems || []),
         auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
+        platformUsage: raw.platformUsage || defaults.platformUsage,
       };
     }
   } catch {
@@ -465,6 +491,7 @@ export function persistApiStore(): void {
         processedWebhooks: Array.from(store.processedWebhooks.values()),
         moderationItems: Array.from(store.moderationItems.entries()),
         auditLogs: store.auditLogs,
+        platformUsage: store.platformUsage,
       },
       null,
       2

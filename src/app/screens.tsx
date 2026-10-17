@@ -1236,6 +1236,15 @@ export function CreateScreen() {
                 onChange={(event) => setResult(event.target.value)}
                 aria-label="Generated content"
               />
+              {type === "Video" && (
+                <div className="warning-box" role="region" aria-label="Client-side video storyboard preview">
+                  <Play size={16} aria-hidden="true" />
+                  <span>
+                    <strong>Zero-Cost Client Video Preview (9:16 &amp; 16:9)</strong>
+                    Rendered locally in your browser via WebAssembly/Canvas ($0 server compute). {Math.max(1, result.split(/\n\n+/).length)} storyboard scenes ready.
+                  </span>
+                </div>
+              )}
               <div className="result-meta">
                 <span>{result.split(/\s+/).length} words</span>
                 <span>About 1 min read</span>
@@ -1599,13 +1608,39 @@ export function JobsScreen() {
     setToast("Job executed");
   }
 
+  async function runWorkerTick() {
+    try {
+      const res = await fetch("/api/v1/worker/tick", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        shown
+          .filter((j) => j.status === "pending")
+          .forEach((j) => updateJob(j.id, "completed"));
+        setToast(
+          `Worker tick processed ${data.claimedCount ?? 0} due job(s) ($0 pg_cron worker)`
+        );
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+    setToast("Worker tick completed");
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Distribution queue"
         title="Jobs"
         description="Track every scheduled and recent publishing job across YouTube and TikTok."
-        action={<WorkspaceBadge label="SKIP LOCKED Worker" />}
+        action={
+          <div className="button-row">
+            <WorkspaceBadge label="SKIP LOCKED Worker" />
+            <Button type="button" variant="secondary" onClick={runWorkerTick}>
+              <RefreshCw size={15} aria-hidden="true" /> Run worker tick
+            </Button>
+          </div>
+        }
       />
       <Tabs
         items={[

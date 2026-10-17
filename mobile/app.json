@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "ContentFlow",
+    "slug": "contentflow",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.contentflow.mobile"
+    },
+    "android": {
+      "package": "app.contentflow.mobile"
+    }
+  }
+}

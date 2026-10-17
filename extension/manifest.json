@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "ContentFlow — Quick Capture & Adapt",
+  "version": "1.0.0",
+  "description": "Capture ideas or selected text from any webpage, generate YouTube & TikTok variants, and save directly to ContentFlow.",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ContentFlow Quick Capture"
+  }
+}
