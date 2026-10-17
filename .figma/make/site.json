@@ -1,0 +1,10 @@
+{
+  "description": "AI-powered workspace streamlining content creation and scheduling for YouTube and TikTok creators with intuitive editing, platform adaptation, and job management.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
