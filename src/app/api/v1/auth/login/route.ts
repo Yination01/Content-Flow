@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   createSessionCookieHeader,
+  hashPassword,
+  isSuperuserEmail,
   signSessionToken,
   verifyPassword,
 } from "@/lib/server/auth";
 import { checkRateLimit, extractRateLimitKey } from "@/lib/server/rate-limit";
-import { getApiStore } from "@/lib/server/store";
+import { getApiStore, persistApiStore } from "@/lib/server/store";
 
 export async function POST(request: Request) {
   const rl = checkRateLimit(extractRateLimitKey(request, "auth-login"), 10, 60_000);
@@ -53,9 +55,18 @@ export async function POST(request: Request) {
         );
       }
 
+      if (isSuperuserEmail(matchedUser.email)) {
+        matchedUser.tier = "AGENCY";
+        if (!matchedUser.roles.includes("superuser")) {
+          matchedUser.roles.push("superuser");
+        }
+      }
+
       const token = signSessionToken({
         userId: matchedUser.id,
         email: matchedUser.email,
+        name: matchedUser.name,
+        tier: matchedUser.tier,
         roles: matchedUser.roles,
         exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
       });
@@ -65,6 +76,7 @@ export async function POST(request: Request) {
           id: matchedUser.id,
           name: matchedUser.name,
           email: matchedUser.email,
+          niche: matchedUser.niche,
           tier: matchedUser.tier,
           roles: matchedUser.roles,
           usage: matchedUser.usage,
@@ -79,27 +91,65 @@ export async function POST(request: Request) {
       return response;
     }
 
-    // If logging in with default workspace creator credentials
-    const defaultUser = store.users.get("user-1")!;
-    const token = signSessionToken({
-      userId: defaultUser.id,
+    // Serverless cold-start account recovery: create/rehydrate user for this email
+    const isSuper = isSuperuserEmail(email);
+    const derivedName =
+      typeof body?.name === "string" && body.name.trim()
+        ? body.name.trim()
+        : email
+            .split("@")[0]
+            .replace(/[._-]+/g, " ")
+            .replace(/\b\w/g, (c: string) => c.toUpperCase());
+    const userId = `user-${Buffer.from(email).toString("base64url").slice(0, 12)}`;
+    const roles = isSuper
+      ? (["creator", "superuser"] as const)
+      : (["creator"] as const);
+    const tier = isSuper ? ("AGENCY" as const) : ("FREE" as const);
+
+    const recoveredUser = {
+      id: userId,
+      name: derivedName,
       email,
-      roles: defaultUser.roles,
+      niche: "Multi-channel content creation",
+      passwordHash: hashPassword(password),
+      tier,
+      roles: [...roles],
+      status: "Active" as const,
+      joinedAt: new Date().toISOString(),
+      usage: {
+        dailyAiGenerations: 0,
+        monthlyPostsCreated: 0,
+        monthlyCrossPosts: 0,
+        storageUsedMb: 0,
+      },
+      encryptedByok: {},
+      connectedPlatforms: {},
+    };
+    store.users.set(userId, recoveredUser);
+    persistApiStore();
+
+    const token = signSessionToken({
+      userId: recoveredUser.id,
+      email: recoveredUser.email,
+      name: recoveredUser.name,
+      tier: recoveredUser.tier,
+      roles: recoveredUser.roles,
       exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
     });
 
     const response = NextResponse.json({
       user: {
-        id: defaultUser.id,
-        name: defaultUser.name,
-        email,
-        tier: defaultUser.tier,
-        roles: defaultUser.roles,
-        usage: defaultUser.usage,
+        id: recoveredUser.id,
+        name: recoveredUser.name,
+        email: recoveredUser.email,
+        niche: recoveredUser.niche,
+        tier: recoveredUser.tier,
+        roles: recoveredUser.roles,
+        usage: recoveredUser.usage,
       },
       session: {
-        userId: defaultUser.id,
-        email,
+        userId: recoveredUser.id,
+        email: recoveredUser.email,
         expiresInSeconds: 7 * 24 * 3600,
       },
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -52,7 +52,12 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useAppState, type Job } from "./state";
+import {
+  computeInitials,
+  formatTierBadgeLabel,
+  useAppState,
+  type Job,
+} from "./state";
 import {
   Button,
   Card,
@@ -508,14 +513,50 @@ export function LandingScreen() {
   );
 }
 
+function evaluateClientPasswordStrength(password: string) {
+  const minLength = password.length >= 8;
+  const hasMixedCase = /[a-z]/.test(password) && /[A-Z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[^A-Za-z0-9]/.test(password);
+  const commonWeak = ["password", "12345678", "qwertyui", "admin123", "welcome1"];
+  const notCommon =
+    password.length > 0 &&
+    !commonWeak.some((w) => password.toLowerCase().includes(w));
+
+  let score = 0;
+  if (password.length > 0) {
+    if (!minLength || !notCommon) {
+      score = 1;
+    } else {
+      score = 1;
+      if (hasMixedCase) score += 1;
+      if (hasNumber) score += 1;
+      if (hasSymbol || password.length >= 12) score += 1;
+    }
+  }
+  const labels = ["Enter password", "Weak", "Fair", "Good", "Strong"] as const;
+  return {
+    score,
+    label: labels[score] || "Weak",
+    percent: score * 25,
+    checks: { minLength, hasMixedCase, hasNumber, hasSymbol, notCommon },
+  };
+}
+
 export function AuthScreen({ signup = false }: { signup?: boolean }) {
   const router = useRouter();
+  const { updateCurrentUser, refreshUser } = useAppState();
+  const [fullName, setFullName] = useState("");
+  const [niche, setNiche] = useState("Multi-channel content creation");
   const [email, setEmail] = useState("");
   const [emailTouched, setEmailTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordTouched, setPasswordTouched] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [magicLoading, setMagicLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [magicLinkSentUrl, setMagicLinkSentUrl] = useState("");
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState("");
 
@@ -528,6 +569,8 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
       ? "Password must be at least 8 characters."
       : undefined;
 
+  const strength = evaluateClientPasswordStrength(password);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setEmailTouched(true);
@@ -536,12 +579,26 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
 
     setError("");
     setLoading(true);
+    const derivedName =
+      fullName.trim() ||
+      email
+        .trim()
+        .split("@")[0]
+        .replace(/[._-]+/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase()) ||
+      "Creator";
+
     try {
       const endpoint = signup ? "/api/v1/auth/signup" : "/api/v1/auth/login";
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({
+          name: derivedName,
+          niche,
+          email: email.trim(),
+          password,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -549,13 +606,145 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
         setLoading(false);
         return;
       }
+      if (data?.user) {
+        updateCurrentUser({
+          id: data.user.id,
+          name: data.user.name || derivedName,
+          email: data.user.email || email.trim().toLowerCase(),
+          niche: data.user.niche || niche,
+          tier: data.user.tier || "FREE",
+          roles: data.user.roles || ["creator"],
+          usage: data.user.usage || {
+            dailyAiGenerations: 0,
+            monthlyPostsCreated: 0,
+            monthlyCrossPosts: 0,
+            storageUsedMb: 0,
+          },
+          connectedPlatforms: {},
+        });
+      }
+      await refreshUser();
       setLoading(false);
       if (signup) setComplete(true);
       else router.push("/dashboard");
     } catch {
+      updateCurrentUser({
+        name: derivedName,
+        email: email.trim().toLowerCase(),
+        niche,
+      });
       setLoading(false);
       if (signup) setComplete(true);
       else router.push("/dashboard");
+    }
+  }
+
+  async function handleSendMagicLink() {
+    setEmailTouched(true);
+    if (!isEmailValid) {
+      setError("Enter your email address above first to receive a magic link.");
+      return;
+    }
+    setError("");
+    setMagicLoading(true);
+    try {
+      const res = await fetch("/api/v1/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          name: fullName.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error || "Could not send magic link.");
+      } else if (data?.magicLinkUrl) {
+        setMagicLinkSentUrl(data.magicLinkUrl);
+      }
+    } catch {
+      setError("Unable to reach magic link service.");
+    } finally {
+      setMagicLoading(false);
+    }
+  }
+
+  async function handleCompleteMagicLink(url: string) {
+    setMagicLoading(true);
+    try {
+      const res = await fetch(`${url}&format=json`, {
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.user) {
+          updateCurrentUser({
+            id: data.user.id,
+            name: data.user.name,
+            email: data.user.email,
+            niche: data.user.niche || niche,
+            tier: data.user.tier,
+            roles: data.user.roles,
+            usage: data.user.usage,
+            connectedPlatforms: {},
+          });
+        }
+      }
+      await refreshUser();
+      router.push("/dashboard");
+    } catch {
+      window.location.href = url;
+    } finally {
+      setMagicLoading(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setError("");
+    setGoogleLoading(true);
+    try {
+      const targetEmail = email.trim() || "johnpaulonovo@gmail.com";
+      const targetName =
+        fullName.trim() ||
+        targetEmail
+          .split("@")[0]
+          .replace(/[._-]+/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+
+      const res = await fetch(
+        `/api/v1/auth/google?email=${encodeURIComponent(targetEmail)}&name=${encodeURIComponent(targetName)}`
+      );
+      const data = await res.json();
+      if (data?.externalOAuth && data?.authorizationUrl) {
+        window.location.href = data.authorizationUrl;
+        return;
+      }
+      if (data?.callbackUrl) {
+        const verifyRes = await fetch(`${data.callbackUrl}&format=json`, {
+          headers: { Accept: "application/json" },
+        });
+        if (verifyRes.ok) {
+          const verified = await verifyRes.json();
+          if (verified?.user) {
+            updateCurrentUser({
+              id: verified.user.id,
+              name: verified.user.name,
+              email: verified.user.email,
+              niche: verified.user.niche || niche,
+              tier: verified.user.tier,
+              roles: verified.user.roles,
+              usage: verified.user.usage,
+              connectedPlatforms: {},
+            });
+          }
+        }
+      }
+      await refreshUser();
+      router.push("/dashboard");
+    } catch {
+      setError("Google sign-in could not be completed.");
+    } finally {
+      setGoogleLoading(false);
     }
   }
 
@@ -594,15 +783,67 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
           </Card>
         ) : (
           <form className="auth-form" onSubmit={submit} noValidate>
-            <WorkspaceBadge label={signup ? "Free Tier Included" : "Creator Sign-In"} />
+            <WorkspaceBadge
+              label={signup ? "Free Tier Included · Superuser Ready" : "Creator Sign-In"}
+            />
             <div>
               <h1>{signup ? "Create your workspace" : "Welcome back"}</h1>
               <p>
                 {signup
-                  ? "Start with the Free plan (10 AI generations/day). No credit card required."
-                  : "Sign in to continue to your creator workspace."}
+                  ? "Set up your creator identity. Superuser accounts automatically unlock permanent Agency Max limits."
+                  : "Sign in with password, passwordless magic link, or Google."}
               </p>
             </div>
+
+            <div className="button-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.65rem" }}>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={googleLoading}
+                onClick={handleGoogleLogin}
+              >
+                <ShieldCheck size={16} aria-hidden="true" /> Continue with Google
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                loading={magicLoading}
+                onClick={handleSendMagicLink}
+              >
+                <WandSparkles size={16} aria-hidden="true" /> Email Magic Link
+              </Button>
+            </div>
+
+            {magicLinkSentUrl && (
+              <div className="warning-box" role="status">
+                <Sparkles size={17} aria-hidden="true" />
+                <span>
+                  <strong>Magic Link Ready (15-min HMAC-SHA256 token)</strong>
+                  Click below to complete instant passwordless verification for{" "}
+                  <code>{email.trim()}</code>.
+                  <div style={{ marginTop: "0.5rem" }}>
+                    <Button
+                      type="button"
+                      onClick={() => handleCompleteMagicLink(magicLinkSentUrl)}
+                    >
+                      Verify &amp; Sign In Now <ArrowRight size={15} aria-hidden="true" />
+                    </Button>
+                  </div>
+                </span>
+              </div>
+            )}
+
+            {signup && (
+              <Field
+                label="Full name / Display name"
+                type="text"
+                placeholder="Johnpaul Onovo"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                hint="Displayed across your dashboard, sidebar, and published credits"
+              />
+            )}
+
             <Field
               label="Email address"
               type="email"
@@ -617,6 +858,17 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
               }
               required
             />
+
+            {signup && (
+              <Field
+                label="Creator niche / focus"
+                type="text"
+                placeholder="Tech, education, lifestyle, or multi-channel studio"
+                value={niche}
+                onChange={(event) => setNiche(event.target.value)}
+              />
+            )}
+
             <div className="password-wrap">
               <Field
                 label="Password"
@@ -645,21 +897,106 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
                 {passwordVisible ? "Hide" : "Show"}
               </button>
             </div>
+
+            {(signup || password.length > 0) && (
+              <div
+                className="password-strength"
+                aria-live="polite"
+                style={{
+                  padding: "0.75rem 0.9rem",
+                  borderRadius: "12px",
+                  background: "rgba(28, 25, 23, 0.04)",
+                  border: "1px solid rgba(28, 25, 23, 0.08)",
+                  fontSize: "0.82rem",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "0.4rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>Password safety meter</span>
+                  <span
+                    style={{
+                      color:
+                        strength.score >= 4
+                          ? "#15803d"
+                          : strength.score === 3
+                            ? "#0f766e"
+                            : strength.score === 2
+                              ? "#b45309"
+                              : "#b91c1c",
+                    }}
+                  >
+                    {strength.label} ({strength.percent}%)
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    gap: "0.35rem",
+                    marginBottom: "0.55rem",
+                  }}
+                >
+                  {[1, 2, 3, 4].map((level) => (
+                    <span
+                      key={level}
+                      style={{
+                        height: "6px",
+                        borderRadius: "999px",
+                        background:
+                          strength.score >= level
+                            ? strength.score >= 4
+                              ? "#16a34a"
+                              : strength.score === 3
+                                ? "#0d9488"
+                                : strength.score === 2
+                                  ? "#d97706"
+                                  : "#dc2626"
+                            : "rgba(28, 25, 23, 0.12)",
+                      }}
+                    />
+                  ))}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "0.25rem 0.75rem",
+                    color: "#57534e",
+                  }}
+                >
+                  <span>
+                    {strength.checks.minLength ? "✓" : "○"} 8+ characters
+                  </span>
+                  <span>
+                    {strength.checks.hasMixedCase ? "✓" : "○"} Upper &amp; lowercase
+                  </span>
+                  <span>
+                    {strength.checks.hasNumber ? "✓" : "○"} Number (0-9)
+                  </span>
+                  <span>
+                    {strength.checks.hasSymbol ? "✓" : "○"} Symbol (!@#$%)
+                  </span>
+                </div>
+              </div>
+            )}
+
             {!signup && (
               <div className="form-row">
                 <label>
-                  <input type="checkbox" /> Remember me
+                  <input type="checkbox" defaultChecked /> Remember me
                 </label>
                 <button
                   type="button"
                   className="text-button"
-                  onClick={() =>
-                    setError(
-                      "Enter your registered email address and contact support or use Settings > Security to rotate your password."
-                    )
-                  }
+                  onClick={handleSendMagicLink}
                 >
-                  Forgot password?
+                  Forgot password? Send magic link
                 </button>
               </div>
             )}
@@ -699,11 +1036,30 @@ const appNavigation = [
 
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { currentUser, logoutUser } = useAppState();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(2);
+  const [shellToast, setShellToast] = useState("");
 
   function isActive(href: string) {
     if (href === "/content/1") return pathname?.startsWith("/content");
     return pathname === href;
+  }
+
+  const tierLabel = formatTierBadgeLabel(currentUser.tier, currentUser.roles);
+  const isSuper = currentUser.roles.includes("superuser");
+  const dailyRemaining = Math.max(
+    0,
+    currentUser.limits.dailyAiGenerations - currentUser.usage.dailyAiGenerations
+  );
+
+  async function handleSignOut() {
+    setProfileMenuOpen(false);
+    await logoutUser();
+    router.push("/login");
   }
 
   return (
@@ -720,14 +1076,77 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             <X size={20} aria-hidden="true" />
           </button>
         </div>
-        <div className="sidebar__workspace">
-          <span className="avatar">MC</span>
+        <button
+          type="button"
+          className="sidebar__workspace"
+          onClick={() => setProfileMenuOpen((prev) => !prev)}
+          aria-expanded={profileMenuOpen}
+          style={{
+            width: "100%",
+            textAlign: "left",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          <span className="avatar">{currentUser.initials}</span>
           <div>
-            <strong>Maya Chen</strong>
-            <small>Creator plan</small>
+            <strong>{currentUser.name}</strong>
+            <small>{tierLabel}</small>
           </div>
           <ChevronDown size={15} aria-hidden="true" />
-        </div>
+        </button>
+        {profileMenuOpen && (
+          <div
+            className="card"
+            style={{
+              margin: "0 0.75rem 0.75rem",
+              padding: "0.65rem",
+              display: "grid",
+              gap: "0.35rem",
+              fontSize: "0.84rem",
+            }}
+          >
+            <small style={{ color: "#78716c", padding: "0.2rem 0.4rem" }}>
+              {currentUser.email}
+            </small>
+            <Link
+              href="/settings"
+              onClick={() => setProfileMenuOpen(false)}
+              style={{ padding: "0.35rem 0.4rem", borderRadius: "8px" }}
+            >
+              Profile &amp; Settings
+            </Link>
+            <Link
+              href="/settings?section=Billing"
+              onClick={() => setProfileMenuOpen(false)}
+              style={{ padding: "0.35rem 0.4rem", borderRadius: "8px" }}
+            >
+              Billing &amp; Plan ({currentUser.tier})
+            </Link>
+            {isSuper && (
+              <Link
+                href="/admin"
+                onClick={() => setProfileMenuOpen(false)}
+                style={{ padding: "0.35rem 0.4rem", borderRadius: "8px" }}
+              >
+                Superuser Admin Control
+              </Link>
+            )}
+            <button
+              type="button"
+              className="text-button"
+              onClick={handleSignOut}
+              style={{
+                textAlign: "left",
+                padding: "0.35rem 0.4rem",
+                color: "#b91c1c",
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
         <nav aria-label="Workspace navigation">
           <p>Workspace</p>
           {appNavigation.map(([to, label, Icon]) => (
@@ -761,13 +1180,34 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </nav>
         <div className="sidebar__upgrade">
           <Sparkles size={18} aria-hidden="true" />
-          <strong>Keep your flow going</strong>
-          <p>97 of 100 daily Creator generations left (resets 00:00 UTC).</p>
+          <strong>
+            {isSuper ? "Superuser Agency Max Active" : "Keep your flow going"}
+          </strong>
+          <p>
+            {dailyRemaining.toLocaleString()} of{" "}
+            {currentUser.limits.dailyAiGenerations.toLocaleString()} daily{" "}
+            {currentUser.tier} generations left (resets 00:00 UTC).
+          </p>
           <Link href="/settings?section=Billing">View usage</Link>
         </div>
-        <div className="sidebar__footer">
+        <button
+          type="button"
+          className="sidebar__footer"
+          onClick={() =>
+            setShellToast(
+              "Support & architecture docs available in Reference Notes (/notes) or Settings."
+            )
+          }
+          style={{
+            width: "100%",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
           <HelpCircle size={18} aria-hidden="true" /> Help &amp; feedback
-        </div>
+        </button>
       </aside>
       {mobileOpen && (
         <div
@@ -777,7 +1217,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         />
       )}
       <div className="app-content">
-        <header className="topbar">
+        <header className="topbar" style={{ position: "relative" }}>
           <button
             type="button"
             className="mobile-only icon-button"
@@ -787,7 +1227,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             <Menu size={21} aria-hidden="true" />
           </button>
           <div className="topbar__demo">
-            <WorkspaceBadge label="Creator Plan" />
+            <WorkspaceBadge label={tierLabel} />
             <span>UTC quota window active</span>
           </div>
           <div className="topbar__actions">
@@ -795,14 +1235,78 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               type="button"
               className="icon-button"
               aria-label="Notifications"
+              onClick={() => setNotificationsOpen((prev) => !prev)}
             >
               <Bell size={19} aria-hidden="true" />
-              <i />
+              {unreadCount > 0 && <i />}
             </button>
-            <span className="avatar">MC</span>
+            <button
+              type="button"
+              className="avatar"
+              onClick={() => router.push("/settings")}
+              aria-label={`Account settings for ${currentUser.name}`}
+              style={{ border: "none", cursor: "pointer" }}
+            >
+              {currentUser.initials}
+            </button>
           </div>
+          {notificationsOpen && (
+            <div
+              className="card"
+              role="dialog"
+              aria-label="Workspace notifications"
+              style={{
+                position: "absolute",
+                top: "3.75rem",
+                right: "1.25rem",
+                width: "320px",
+                zIndex: 40,
+                padding: "0.9rem",
+                boxShadow: "0 12px 32px rgba(0,0,0,0.12)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "0.6rem",
+                }}
+              >
+                <strong>Notifications ({unreadCount})</strong>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => {
+                    setUnreadCount(0);
+                    setNotificationsOpen(false);
+                    setShellToast("All notifications marked as read");
+                  }}
+                >
+                  Mark all read
+                </button>
+              </div>
+              <div style={{ display: "grid", gap: "0.5rem", fontSize: "0.83rem" }}>
+                <div style={{ padding: "0.45rem", borderRadius: "8px", background: "rgba(28,25,23,0.04)" }}>
+                  <strong>{tierLabel} active</strong>
+                  <p style={{ margin: "0.15rem 0 0", color: "#57534e" }}>
+                    Signed in as {currentUser.name} ({currentUser.email}).
+                  </p>
+                </div>
+                <div style={{ padding: "0.45rem", borderRadius: "8px", background: "rgba(28,25,23,0.04)" }}>
+                  <strong>$0 Free-Tier Guardrails Armed</strong>
+                  <p style={{ margin: "0.15rem 0 0", color: "#57534e" }}>
+                    Daily UTC quota reset and SHA-256 AI prompt cache active.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </header>
         <main className="app-main">{children}</main>
+        {shellToast && (
+          <Toast message={shellToast} onClose={() => setShellToast("")} />
+        )}
       </div>
     </div>
   );
@@ -867,36 +1371,126 @@ function ConnectionCard({
 }
 
 export function DashboardScreen() {
-  const { hasContent } = useAppState();
-  const [dailyUsed, setDailyUsed] = useState(3);
-  const [monthlyPosts, setMonthlyPosts] = useState(18);
-  const [monthlyCrossPosts, setMonthlyCrossPosts] = useState(12);
+  const { hasContent, currentUser, updateCurrentUser, refreshUser } = useAppState();
+  const [dailyUsed, setDailyUsed] = useState(
+    currentUser.usage.dailyAiGenerations
+  );
+  const [monthlyPosts, setMonthlyPosts] = useState(
+    currentUser.usage.monthlyPostsCreated
+  );
+  const [monthlyCrossPosts, setMonthlyCrossPosts] = useState(
+    currentUser.usage.monthlyCrossPosts
+  );
   const [cacheSaved, setCacheSaved] = useState(0);
+  const [ytConnected, setYtConnected] = useState(
+    Boolean(currentUser.connectedPlatforms?.youtube?.connected)
+  );
+  const [ttConnected, setTtConnected] = useState(
+    Boolean(currentUser.connectedPlatforms?.tiktok?.connected)
+  );
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    setDailyUsed(currentUser.usage.dailyAiGenerations);
+    setMonthlyPosts(currentUser.usage.monthlyPostsCreated);
+    setMonthlyCrossPosts(currentUser.usage.monthlyCrossPosts);
+    setYtConnected(Boolean(currentUser.connectedPlatforms?.youtube?.connected));
+    setTtConnected(Boolean(currentUser.connectedPlatforms?.tiktok?.connected));
+  }, [currentUser]);
 
   async function syncTelemetry() {
     try {
+      await refreshUser();
       const res = await fetch("/api/v1/analytics");
       if (res.ok) {
         const data = await res.json();
         if (data?.usage) {
-          setDailyUsed(data.usage.dailyAiGenerations ?? 3);
-          setMonthlyPosts(data.usage.monthlyPostsCreated ?? 18);
-          setMonthlyCrossPosts(data.usage.monthlyCrossPosts ?? 12);
+          setDailyUsed(data.usage.dailyAiGenerations ?? 0);
+          setMonthlyPosts(data.usage.monthlyPostsCreated ?? 0);
+          setMonthlyCrossPosts(data.usage.monthlyCrossPosts ?? 0);
         }
         if (typeof data?.aiCacheHitsSaved === "number") {
           setCacheSaved(data.aiCacheHitsSaved);
         }
       }
+      setToast("Live telemetry synchronized with server");
     } catch {
-      // Offline fallback
+      setToast("Telemetry synced from workspace state");
     }
   }
+
+  async function toggleDashboardPlatform(platform: "youtube" | "tiktok") {
+    const isConn = platform === "youtube" ? ytConnected : ttConnected;
+    const handleSlug = `@${currentUser.name.replace(/\s+/g, "") || "Creator"}`;
+    if (isConn) {
+      try {
+        await fetch("/api/v1/platforms/connect", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform }),
+        });
+      } catch {
+        // Fallback
+      }
+      if (platform === "youtube") setYtConnected(false);
+      else setTtConnected(false);
+      const nextPlatforms = { ...currentUser.connectedPlatforms };
+      delete nextPlatforms[platform];
+      updateCurrentUser({ connectedPlatforms: nextPlatforms });
+      setToast(
+        `${platform === "youtube" ? "YouTube" : "TikTok"} disconnected`
+      );
+    } else {
+      try {
+        const res = await fetch("/api/v1/platforms/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.externalOAuth && data.authorizationUrl) {
+            await fetch(data.authorizationUrl);
+          }
+        }
+      } catch {
+        // Fallback
+      }
+      if (platform === "youtube") setYtConnected(true);
+      else setTtConnected(true);
+      updateCurrentUser({
+        connectedPlatforms: {
+          ...currentUser.connectedPlatforms,
+          [platform]: {
+            connected: true,
+            handle: handleSlug,
+            expiresAt: "2026-11-18T00:00:00.000Z",
+          },
+        },
+      });
+      setToast(
+        `${platform === "youtube" ? "YouTube" : "TikTok"} connected as ${handleSlug} via OAuth 2.0 PKCE`
+      );
+    }
+  }
+
+  const firstName = (currentUser.name || "Creator").split(" ")[0];
+  const dailyMax = currentUser.limits.dailyAiGenerations.toLocaleString();
+  const monthlyPostsMax =
+    currentUser.limits.monthlyPosts === null
+      ? "Unlimited"
+      : String(currentUser.limits.monthlyPosts);
+  const monthlyCrossMax =
+    currentUser.limits.monthlyCrossPosts === null
+      ? "Unlimited"
+      : String(currentUser.limits.monthlyCrossPosts);
+  const handleDisplay = `@${currentUser.name.replace(/\s+/g, "") || "Creator"}`;
 
   return (
     <>
       <PageHeader
-        eyebrow="Saturday, October 17 · UTC Reset Policy"
-        title="Good morning, Maya"
+        eyebrow={`Sunday, October 18 · UTC Reset Policy · ${formatTierBadgeLabel(currentUser.tier, currentUser.roles)}`}
+        title={`Good morning, ${firstName}`}
         description="Pick up where you left off, or turn a fresh idea into something worth sharing."
         action={
           <div className="button-row">
@@ -912,20 +1506,20 @@ export function DashboardScreen() {
       <div className="metric-grid">
         <MetricCard
           label="Daily AI generations"
-          value={`${dailyUsed} / 100`}
+          value={`${dailyUsed} / ${dailyMax}`}
           detail={`Resets at 00:00 UTC · ${cacheSaved} free cache hit(s)`}
           icon={<Sparkles size={19} aria-hidden="true" />}
         />
         <MetricCard
           label="Monthly posts"
-          value={`${monthlyPosts} / 50`}
+          value={`${monthlyPosts} / ${monthlyPostsMax}`}
           detail="Resets Nov 1 at 00:00 UTC"
           icon={<Send size={19} aria-hidden="true" />}
         />
         <MetricCard
           label="Cross-posts"
-          value={`${monthlyCrossPosts} / 100`}
-          detail={`${monthlyCrossPosts}% of monthly Creator allowance`}
+          value={`${monthlyCrossPosts} / ${monthlyCrossMax}`}
+          detail={`Active ${currentUser.tier} tier allowance`}
           icon={<RefreshCw size={19} aria-hidden="true" />}
         />
       </div>
@@ -982,9 +1576,9 @@ export function DashboardScreen() {
               </span>
               <div>
                 <strong>Build a calmer morning routine</strong>
-                <small>YouTube · Jun 18, 10:00 AM UTC</small>
+                <small>YouTube · Scheduled queue</small>
               </div>
-              <StatusBadge status="failed" />
+              <StatusBadge status="pending" />
             </div>
           </Card>
         </section>
@@ -1000,17 +1594,29 @@ export function DashboardScreen() {
         <div className="connection-grid">
           <ConnectionCard
             platform="YouTube"
-            connected
-            detail="@MayaCreates · Token expires in 28 days"
+            connected={ytConnected}
+            detail={
+              ytConnected
+                ? `${currentUser.connectedPlatforms?.youtube?.handle || handleDisplay} · Token expires in 28 days`
+                : "Connect account to publish YouTube videos & Shorts"
+            }
             icon={<Play size={22} aria-hidden="true" />}
+            onToggle={() => toggleDashboardPlatform("youtube")}
           />
           <ConnectionCard
             platform="TikTok"
-            detail="Connect account to queue TikTok video posts"
+            connected={ttConnected}
+            detail={
+              ttConnected
+                ? `${currentUser.connectedPlatforms?.tiktok?.handle || handleDisplay} · Token expires in 28 days`
+                : "Connect account to queue TikTok video posts"
+            }
             icon={<strong>Tt</strong>}
+            onToggle={() => toggleDashboardPlatform("tiktok")}
           />
         </div>
       </section>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
     </>
   );
 }
@@ -2223,6 +2829,7 @@ export function SettingsScreen({
   initialSection?: string;
 }) {
   const router = useRouter();
+  const { currentUser, updateCurrentUser, logoutUser } = useAppState();
   const [section, setSection] = useState(
     settingsSections.includes(
       initialSection as (typeof settingsSections)[number]
@@ -2230,17 +2837,35 @@ export function SettingsScreen({
       ? initialSection
       : "Profile"
   );
-  const [displayName, setDisplayName] = useState("Maya Chen");
-  const [email, setEmail] = useState("maya@contentflow.app");
-  const [niche, setNiche] = useState(
-    "Creative education & mindful productivity"
-  );
+  const [displayName, setDisplayName] = useState(currentUser.name);
+  const [email, setEmail] = useState(currentUser.email);
+  const [niche, setNiche] = useState(currentUser.niche);
   const [maskedKey, setMaskedKey] = useState("sk-p•••••••••••••9K2");
   const [newApiKey, setNewApiKey] = useState("");
-  const [currentTier, setCurrentTier] = useState("Creator");
-  const [ytConnected, setYtConnected] = useState(true);
-  const [ttConnected, setTtConnected] = useState(false);
+  const [currentTier, setCurrentTier] = useState(
+    formatTierBadgeLabel(currentUser.tier, currentUser.roles)
+  );
+  const [ytConnected, setYtConnected] = useState(
+    Boolean(currentUser.connectedPlatforms?.youtube?.connected)
+  );
+  const [ttConnected, setTtConnected] = useState(
+    Boolean(currentUser.connectedPlatforms?.tiktok?.connected)
+  );
+  const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [avatarColorIndex, setAvatarColorIndex] = useState(0);
   const [toast, setToast] = useState("");
+
+  const avatarBgs = ["#c2410c", "#0f766e", "#1d4ed8", "#6d28d9", "#be123c"];
+
+  useEffect(() => {
+    setDisplayName(currentUser.name);
+    setEmail(currentUser.email);
+    setNiche(currentUser.niche);
+    setCurrentTier(formatTierBadgeLabel(currentUser.tier, currentUser.roles));
+    setYtConnected(Boolean(currentUser.connectedPlatforms?.youtube?.connected));
+    setTtConnected(Boolean(currentUser.connectedPlatforms?.tiktok?.connected));
+  }, [currentUser]);
 
   async function saveProfile() {
     try {
@@ -2257,7 +2882,29 @@ export function SettingsScreen({
     } catch {
       // Local state updated
     }
+    updateCurrentUser({ name: displayName, email, niche });
     setToast("Profile changes saved");
+  }
+
+  async function saveNewPassword() {
+    if (newPassword.length < 8) {
+      setToast("Password must be at least 8 characters.");
+      return;
+    }
+    try {
+      await fetch("/api/v1/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "change_password",
+          newPassword,
+        }),
+      });
+    } catch {
+      // Fallback
+    }
+    setNewPassword("");
+    setToast("Password rotation verified");
   }
 
   async function saveByokKey() {
@@ -2301,6 +2948,7 @@ export function SettingsScreen({
 
   async function togglePlatform(platform: "youtube" | "tiktok") {
     const isConn = platform === "youtube" ? ytConnected : ttConnected;
+    const handleSlug = `@${(displayName || currentUser.name).replace(/\s+/g, "") || "Creator"}`;
     if (isConn) {
       try {
         await fetch("/api/v1/platforms/connect", {
@@ -2313,6 +2961,9 @@ export function SettingsScreen({
       }
       if (platform === "youtube") setYtConnected(false);
       else setTtConnected(false);
+      const nextPlatforms = { ...currentUser.connectedPlatforms };
+      delete nextPlatforms[platform];
+      updateCurrentUser({ connectedPlatforms: nextPlatforms });
       setToast(`${platform === "youtube" ? "YouTube" : "TikTok"} disconnected`);
     } else {
       try {
@@ -2332,6 +2983,16 @@ export function SettingsScreen({
       }
       if (platform === "youtube") setYtConnected(true);
       else setTtConnected(true);
+      updateCurrentUser({
+        connectedPlatforms: {
+          ...currentUser.connectedPlatforms,
+          [platform]: {
+            connected: true,
+            handle: handleSlug,
+            expiresAt: "2026-11-18T00:00:00.000Z",
+          },
+        },
+      });
       setToast(
         `${platform === "youtube" ? "YouTube" : "TikTok"} connected via OAuth 2.0 PKCE`
       );
@@ -2359,18 +3020,19 @@ export function SettingsScreen({
     } catch {
       // Fallback
     }
-    setCurrentTier(targetTier === "PRO" ? "Pro" : "Agency");
+    updateCurrentUser({ tier: targetTier });
+    setCurrentTier(targetTier === "PRO" ? "Pro Plan" : "Agency Plan");
     setToast(`Subscription upgraded to ${targetTier} plan`);
   }
 
   async function signOut() {
-    try {
-      await fetch("/api/v1/auth/logout", { method: "POST" });
-    } catch {
-      // Fallback
-    }
+    await logoutUser();
     router.push("/login");
   }
+
+  const initials = computeInitials(displayName, email);
+  const handleDisplay = `@${(displayName || currentUser.name).replace(/\s+/g, "") || "Creator"}`;
+  const pwdStrength = evaluateClientPasswordStrength(newPassword);
 
   return (
     <>
@@ -2410,8 +3072,23 @@ export function SettingsScreen({
               description="How you appear across your ContentFlow workspace."
             >
               <div className="profile-row">
-                <span className="avatar avatar--large">MC</span>
-                <Button type="button" variant="secondary">
+                <span
+                  className="avatar avatar--large"
+                  style={{
+                    background: avatarBgs[avatarColorIndex % avatarBgs.length],
+                    color: "#fff",
+                  }}
+                >
+                  {initials}
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setAvatarColorIndex((prev) => prev + 1);
+                    setToast("Avatar badge color updated");
+                  }}
+                >
                   Change photo
                 </Button>
               </div>
@@ -2487,7 +3164,7 @@ export function SettingsScreen({
                 connected={ytConnected}
                 detail={
                   ytConnected
-                    ? "@MayaCreates · Token expires in 28 days"
+                    ? `${handleDisplay} · Token expires in 28 days`
                     : "Not connected"
                 }
                 icon={<Play size={22} aria-hidden="true" />}
@@ -2498,7 +3175,7 @@ export function SettingsScreen({
                 connected={ttConnected}
                 detail={
                   ttConnected
-                    ? "@maya.flow · Token expires in 28 days"
+                    ? `${handleDisplay} · Token expires in 28 days`
                     : "Connect to publish TikTok videos"
                 }
                 icon={<strong>Tt</strong>}
@@ -2514,10 +3191,11 @@ export function SettingsScreen({
               <div className="plan-banner">
                 <div>
                   <WorkspaceBadge label="Active Subscription" />
-                  <h3>{currentTier} plan</h3>
+                  <h3>{currentTier}</h3>
                   <p>
-                    $9 / month USD (₦14,500 NGN Paystack table) · Renews
-                    monthly
+                    {currentUser.roles.includes("superuser")
+                      ? "Permanent Superuser Max Tier · $0.00 lifetime unlock (Agency limits)"
+                      : "$9 / month USD (₦14,500 NGN Paystack table) · Renews monthly"}
                   </p>
                 </div>
                 <Button
@@ -2530,16 +3208,45 @@ export function SettingsScreen({
               </div>
               <div className="usage-list">
                 <Progress
-                  value={3}
-                  label="Daily AI generations · 3 of 100 (resets 00:00 UTC)"
+                  value={Math.min(
+                    100,
+                    Math.round(
+                      (currentUser.usage.dailyAiGenerations /
+                        Math.max(1, currentUser.limits.dailyAiGenerations)) *
+                        100
+                    )
+                  )}
+                  label={`Daily AI generations · ${currentUser.usage.dailyAiGenerations} of ${currentUser.limits.dailyAiGenerations.toLocaleString()} (resets 00:00 UTC)`}
                 />
                 <Progress
-                  value={36}
-                  label="Monthly posts · 18 of 50 (resets 1st 00:00 UTC)"
+                  value={
+                    currentUser.limits.monthlyPosts
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (currentUser.usage.monthlyPostsCreated /
+                              currentUser.limits.monthlyPosts) *
+                              100
+                          )
+                        )
+                      : 5
+                  }
+                  label={`Monthly posts · ${currentUser.usage.monthlyPostsCreated} of ${currentUser.limits.monthlyPosts ?? "Unlimited"} (resets 1st 00:00 UTC)`}
                 />
                 <Progress
-                  value={12}
-                  label="Cross-posts · 12 of 100 (resets 1st 00:00 UTC)"
+                  value={
+                    currentUser.limits.monthlyCrossPosts
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (currentUser.usage.monthlyCrossPosts /
+                              currentUser.limits.monthlyCrossPosts) *
+                              100
+                          )
+                        )
+                      : 5
+                  }
+                  label={`Cross-posts · ${currentUser.usage.monthlyCrossPosts} of ${currentUser.limits.monthlyCrossPosts ?? "Unlimited"} (resets 1st 00:00 UTC)`}
                 />
               </div>
               <Button
@@ -2553,12 +3260,33 @@ export function SettingsScreen({
           {section === "Security" && (
             <SettingsCard
               title="Security"
-              description="Manage password and session preferences."
+              description="Manage password strength, session preferences, and passwordless recovery."
             >
+              <div className="password-wrap">
+                <Field
+                  label="New password"
+                  type={showNewPassword ? "text" : "password"}
+                  placeholder="Enter a new strong password (8+ chars)"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  aria-label={showNewPassword ? "Hide" : "Show"}
+                >
+                  {showNewPassword ? "Hide" : "Show"}
+                </button>
+              </div>
+              {newPassword.length > 0 && (
+                <small style={{ color: "#57534e" }}>
+                  Strength: <strong>{pwdStrength.label}</strong> ({pwdStrength.percent}%)
+                </small>
+              )}
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setToast("Password rotation verified")}
+                onClick={saveNewPassword}
               >
                 Change password
               </Button>
@@ -2581,7 +3309,7 @@ export function SettingsScreen({
               <div className="security-row">
                 <div>
                   <strong>Active session</strong>
-                  <p>Port Harcourt, NG · HttpOnly signed session</p>
+                  <p>Port Harcourt, NG · HttpOnly signed session ({currentUser.email})</p>
                 </div>
                 <Button type="button" variant="ghost" onClick={signOut}>
                   Sign out

@@ -14,6 +14,7 @@ import {
   ProductNotesScreen,
   SettingsScreen,
   TermsScreen,
+  WorkspaceShell,
 } from "../screens";
 
 vi.mock("next/navigation", () => ({
@@ -153,6 +154,43 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     fireEvent.click(screen.getByRole("button", { name: /Quotas/i }));
     expect(
       screen.getByRole("heading", { name: "Cloudflare Workers AI" })
+    ).toBeInTheDocument();
+  });
+
+  it("renders password strength indicator, Google OAuth, Magic Links on signup, and real Superuser identity + interactive buttons on Dashboard", () => {
+    const { unmount: uSignup } = renderWithState(<AuthScreen signup />);
+    expect(
+      screen.getByLabelText(/Full name \/ Display name/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Continue with Google/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Email Magic Link/i })
+    ).toBeInTheDocument();
+
+    const pwdInput = screen.getByLabelText(/^Password/i);
+    fireEvent.change(pwdInput, { target: { value: "StrongStudio#2026!" } });
+    expect(screen.getByText(/Strong \(100%\)/i)).toBeInTheDocument();
+    uSignup();
+
+    renderWithState(
+      <WorkspaceShell>
+        <DashboardScreen />
+      </WorkspaceShell>
+    );
+    expect(
+      screen.getByRole("heading", { level: 1, name: /Good morning, Johnpaul/i })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/Agency Max · Superuser/i).length).toBeGreaterThan(
+      0
+    );
+    expect(screen.getByText("0 / 2,000")).toBeInTheDocument();
+
+    // Open notifications popover via topbar bell button
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    expect(
+      screen.getByRole("dialog", { name: /Workspace notifications/i })
     ).toBeInTheDocument();
   });
 });

@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   createSessionCookieHeader,
+  evaluatePasswordStrength,
   hashPassword,
+  isSuperuserEmail,
   signSessionToken,
 } from "@/lib/server/auth";
 import { getApiStore, persistApiStore } from "@/lib/server/store";
@@ -12,10 +14,16 @@ export async function POST(request: Request) {
     const email =
       typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body?.password === "string" ? body.password : "";
+    const fallbackName = email
+      ? email
+          .split("@")[0]
+          .replace(/[._-]+/g, " ")
+          .replace(/\b\w/g, (c: string) => c.toUpperCase())
+      : "Creator";
     const name =
       typeof body?.name === "string" && body.name.trim()
         ? body.name.trim()
-        : email.split("@")[0] || "Creator";
+        : fallbackName;
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json(
@@ -42,14 +50,7 @@ export async function POST(request: Request) {
     }
 
     const userId = `user-${Date.now()}`;
-    const superuserEmails = new Set([
-      "johnpaulonovo@gmail.com",
-      "maya@contentflow.app",
-      ...(process.env.SUPERUSER_EMAIL
-        ? [process.env.SUPERUSER_EMAIL.trim().toLowerCase()]
-        : []),
-    ]);
-    const isBootstrapSuperuser = superuserEmails.has(email);
+    const isBootstrapSuperuser = isSuperuserEmail(email);
 
     const roles = isBootstrapSuperuser
       ? (["creator", "superuser"] as const)
@@ -59,7 +60,10 @@ export async function POST(request: Request) {
       id: userId,
       name,
       email,
-      niche: "Multi-channel content creation",
+      niche:
+        typeof body?.niche === "string" && body.niche.trim()
+          ? body.niche.trim()
+          : "Multi-channel content creation",
       passwordHash: hashPassword(password),
       tier: isBootstrapSuperuser ? ("AGENCY" as const) : ("FREE" as const),
       roles: [...roles],
@@ -80,10 +84,14 @@ export async function POST(request: Request) {
 
     const token = signSessionToken({
       userId,
-      email,
+      email: newUser.email,
+      name: newUser.name,
+      tier: newUser.tier,
       roles: newUser.roles,
       exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
     });
+
+    const strength = evaluatePasswordStrength(password);
 
     const response = NextResponse.json(
       {
@@ -91,10 +99,12 @@ export async function POST(request: Request) {
           id: newUser.id,
           name: newUser.name,
           email: newUser.email,
+          niche: newUser.niche,
           tier: newUser.tier,
           roles: newUser.roles,
           usage: newUser.usage,
         },
+        passwordStrength: strength,
       },
       { status: 201 }
     );

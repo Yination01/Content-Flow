@@ -3,13 +3,18 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   encryptApiKey,
+  resolveEffectiveTier,
   type EncryptedKeyEnvelope,
   type JobLifecycleStatus,
   type ServerRole,
   type SubscriptionTier,
   type UsageSnapshot,
 } from "@/lib/policy";
-import { hashPassword, parseSessionCookieFromRequest } from "./auth";
+import {
+  hashPassword,
+  isSuperuserEmail,
+  parseSessionCookieFromRequest,
+} from "./auth";
 
 export interface ContentRecord {
   id: string;
@@ -581,14 +586,28 @@ export function extractActorFromRequest(request: Request): {
 
   let userRecord = store.users.get(userId);
   if (!userRecord) {
+    const email = session?.email || `${userId}@contentflow.app`;
+    const isSuper = isSuperuserEmail(email) || session?.roles?.includes("superuser");
+    const initialRoles: ServerRole[] = isSuper
+      ? Array.from(new Set([...(session?.roles || ["creator"]), "superuser" as const]))
+      : session?.roles || ["creator"];
+    const fallbackName =
+      session?.name ||
+      (email
+        ? email
+            .split("@")[0]
+            .replace(/[._-]+/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase())
+        : "Creator");
+
     userRecord = {
       id: userId,
-      name: session?.email ? session.email.split("@")[0] : "Creator",
-      email: session?.email || `${userId}@contentflow.app`,
+      name: fallbackName,
+      email,
       niche: "Multi-channel content creation",
       passwordHash: DEFAULT_PASSWORD_HASH,
-      tier: tierHeader || "FREE",
-      roles: session?.roles || ["creator"],
+      tier: resolveEffectiveTier(tierHeader || session?.tier || "FREE", initialRoles),
+      roles: initialRoles,
       status: "Active",
       joinedAt: new Date().toISOString(),
       usage: {
@@ -601,6 +620,8 @@ export function extractActorFromRequest(request: Request): {
       connectedPlatforms: {},
     };
     store.users.set(userId, userRecord);
+  } else if (session?.name && userRecord.id !== "user-1") {
+    userRecord.name = session.name;
   }
 
   if (tierHeader && ["FREE", "CREATOR", "PRO", "AGENCY"].includes(tierHeader)) {
@@ -621,6 +642,13 @@ export function extractActorFromRequest(request: Request): {
           ["creator", "moderator", "superuser"].includes(r)
         ) as ServerRole[])
     : session?.roles || userRecord.roles;
+
+  if (!rolesHeader && isSuperuserEmail(userRecord.email) && !roles.includes("superuser")) {
+    roles.push("superuser");
+  }
+  if (!tierHeader && roles.includes("superuser")) {
+    userRecord.tier = resolveEffectiveTier(userRecord.tier, roles);
+  }
 
   return {
     userId,
