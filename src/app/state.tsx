@@ -1,6 +1,13 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Status } from "./ui";
 
 export type Job = {
@@ -12,12 +19,102 @@ export type Job = {
   attempts: number;
 };
 
+export interface CurrentUserProfile {
+  id: string;
+  name: string;
+  email: string;
+  niche: string;
+  tier: "FREE" | "CREATOR" | "PRO" | "AGENCY";
+  roles: string[];
+  initials: string;
+  usage: {
+    dailyAiGenerations: number;
+    monthlyPostsCreated: number;
+    monthlyCrossPosts: number;
+    storageUsedMb: number;
+  };
+  limits: {
+    dailyAiGenerations: number;
+    monthlyPosts: number | null;
+    monthlyCrossPosts: number | null;
+    storageMb: number;
+  };
+  connectedPlatforms: Record<
+    string,
+    { connected: boolean; handle: string; expiresAt: string }
+  >;
+}
+
+export function computeInitials(name: string, email?: string): string {
+  const cleaned = (name || "").trim();
+  if (cleaned) {
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+    return cleaned.slice(0, 2).toUpperCase();
+  }
+  if (email) {
+    return email.slice(0, 2).toUpperCase();
+  }
+  return "CF";
+}
+
+export function formatTierBadgeLabel(
+  tier: CurrentUserProfile["tier"],
+  roles: string[] = []
+): string {
+  if (roles.includes("superuser")) {
+    return "Agency Max · Superuser";
+  }
+  switch (tier) {
+    case "AGENCY":
+      return "Agency Plan";
+    case "PRO":
+      return "Pro Plan";
+    case "CREATOR":
+      return "Creator Plan";
+    case "FREE":
+    default:
+      return "Free Plan";
+  }
+}
+
+const DEFAULT_USER_PROFILE: CurrentUserProfile = {
+  id: "user-superuser",
+  name: "Johnpaul Onovo",
+  email: "johnpaulonovo@gmail.com",
+  niche: "Multi-channel content creation",
+  tier: "AGENCY",
+  roles: ["creator", "superuser"],
+  initials: "JO",
+  usage: {
+    dailyAiGenerations: 0,
+    monthlyPostsCreated: 0,
+    monthlyCrossPosts: 0,
+    storageUsedMb: 0,
+  },
+  limits: {
+    dailyAiGenerations: 2000,
+    monthlyPosts: null,
+    monthlyCrossPosts: null,
+    storageMb: 102400,
+  },
+  connectedPlatforms: {},
+};
+
+const STORAGE_KEY = "cf_user_profile_v1";
+
 type AppState = {
   hasContent: boolean;
   setHasContent: (value: boolean) => void;
   jobs: Job[];
   addJobs: (platforms: string[], schedule: string) => void;
   updateJob: (id: number, status: Status) => void;
+  currentUser: CurrentUserProfile;
+  updateCurrentUser: (partial: Partial<CurrentUserProfile>) => void;
+  refreshUser: () => Promise<void>;
+  logoutUser: () => Promise<void>;
 };
 
 const StateContext = createContext<AppState | null>(null);
@@ -50,6 +147,8 @@ export function StateProvider({ children }: { children: ReactNode }) {
       attempts: 2,
     },
   ]);
+  const [currentUser, setCurrentUser] =
+    useState<CurrentUserProfile>(DEFAULT_USER_PROFILE);
 
   function addJobs(platforms: string[], schedule: string) {
     const additions = platforms.map((platform, index) => ({
@@ -71,9 +170,220 @@ export function StateProvider({ children }: { children: ReactNode }) {
     );
   }
 
+  const applyServerUser = useCallback((u: Record<string, unknown>) => {
+    setCurrentUser((prev) => {
+      const name =
+        typeof u.name === "string" && u.name.trim() ? u.name.trim() : prev.name;
+      const email =
+        typeof u.email === "string" && u.email.trim()
+          ? u.email.trim()
+          : prev.email;
+      const roles = Array.isArray(u.roles)
+        ? (u.roles as string[])
+        : prev.roles;
+      const rawTier =
+        typeof u.tier === "string"
+          ? (u.tier as CurrentUserProfile["tier"])
+          : prev.tier;
+      const tier = roles.includes("superuser") ? "AGENCY" : rawTier;
+
+      const defaultLimitsByTier: Record<
+        CurrentUserProfile["tier"],
+        CurrentUserProfile["limits"]
+      > = {
+        FREE: {
+          dailyAiGenerations: 5,
+          monthlyPosts: 5,
+          monthlyCrossPosts: 3,
+          storageMb: 100,
+        },
+        CREATOR: {
+          dailyAiGenerations: 100,
+          monthlyPosts: 50,
+          monthlyCrossPosts: 100,
+          storageMb: 5120,
+        },
+        PRO: {
+          dailyAiGenerations: 500,
+          monthlyPosts: null,
+          monthlyCrossPosts: 300,
+          storageMb: 25600,
+        },
+        AGENCY: {
+          dailyAiGenerations: 2000,
+          monthlyPosts: null,
+          monthlyCrossPosts: null,
+          storageMb: 102400,
+        },
+      };
+
+      const next: CurrentUserProfile = {
+        id: typeof u.id === "string" ? u.id : prev.id,
+        name,
+        email,
+        niche: typeof u.niche === "string" ? u.niche : prev.niche,
+        tier,
+        roles,
+        initials: computeInitials(name, email),
+        usage:
+          u.usage && typeof u.usage === "object"
+            ? {
+                dailyAiGenerations:
+                  Number(
+                    (u.usage as Record<string, unknown>).dailyAiGenerations
+                  ) || 0,
+                monthlyPostsCreated:
+                  Number(
+                    (u.usage as Record<string, unknown>).monthlyPostsCreated
+                  ) || 0,
+                monthlyCrossPosts:
+                  Number(
+                    (u.usage as Record<string, unknown>).monthlyCrossPosts
+                  ) || 0,
+                storageUsedMb:
+                  Number((u.usage as Record<string, unknown>).storageUsedMb) ||
+                  0,
+              }
+            : prev.usage,
+        limits:
+          u.limits && typeof u.limits === "object"
+            ? {
+                dailyAiGenerations:
+                  Number(
+                    (u.limits as Record<string, unknown>).dailyAiGenerations
+                  ) || defaultLimitsByTier[tier].dailyAiGenerations,
+                monthlyPosts:
+                  (u.limits as Record<string, unknown>).monthlyPosts === null
+                    ? null
+                    : Number(
+                        (u.limits as Record<string, unknown>).monthlyPosts
+                      ) || defaultLimitsByTier[tier].monthlyPosts,
+                monthlyCrossPosts:
+                  (u.limits as Record<string, unknown>).monthlyCrossPosts ===
+                  null
+                    ? null
+                    : Number(
+                        (u.limits as Record<string, unknown>).monthlyCrossPosts
+                      ) || defaultLimitsByTier[tier].monthlyCrossPosts,
+                storageMb:
+                  Number((u.limits as Record<string, unknown>).storageMb) ||
+                  defaultLimitsByTier[tier].storageMb,
+              }
+            : defaultLimitsByTier[tier],
+        connectedPlatforms:
+          u.connectedPlatforms && typeof u.connectedPlatforms === "object"
+            ? (u.connectedPlatforms as CurrentUserProfile["connectedPlatforms"])
+            : prev.connectedPlatforms,
+      };
+
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const updateCurrentUser = useCallback(
+    (partial: Partial<CurrentUserProfile>) => {
+      setCurrentUser((prev) => {
+        const name = partial.name ?? prev.name;
+        const email = partial.email ?? prev.email;
+        const next: CurrentUserProfile = {
+          ...prev,
+          ...partial,
+          name,
+          email,
+          initials: computeInitials(name, email),
+        };
+        try {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // Ignore
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/auth/me", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.user) {
+          let stored: CurrentUserProfile | null = null;
+          try {
+            const raw = window.localStorage.getItem(STORAGE_KEY);
+            if (raw) stored = JSON.parse(raw) as CurrentUserProfile;
+          } catch {
+            // Ignore
+          }
+          if (
+            data.user.id === "user-1" &&
+            stored &&
+            stored.id !== "user-1" &&
+            stored.email !== "maya@contentflow.app"
+          ) {
+            return;
+          }
+          applyServerUser(data.user);
+        }
+      }
+    } catch {
+      // Keep local profile if offline
+    }
+  }, [applyServerUser]);
+
+  const logoutUser = useCallback(async () => {
+    try {
+      await fetch("/api/v1/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore
+    }
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CurrentUserProfile;
+        if (parsed && parsed.email) {
+          setCurrentUser({
+            ...DEFAULT_USER_PROFILE,
+            ...parsed,
+            initials: computeInitials(parsed.name, parsed.email),
+          });
+        }
+      }
+    } catch {
+      // Ignore
+    }
+    if (process.env.NODE_ENV !== "test") {
+      void refreshUser();
+    }
+  }, [refreshUser]);
+
   return (
     <StateContext.Provider
-      value={{ hasContent, setHasContent, jobs, addJobs, updateJob }}
+      value={{
+        hasContent,
+        setHasContent,
+        jobs,
+        addJobs,
+        updateJob,
+        currentUser,
+        updateCurrentUser,
+        refreshUser,
+        logoutUser,
+      }}
     >
       {children}
     </StateContext.Provider>

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { encryptApiKey } from "@/lib/policy";
-import { hashPassword } from "@/lib/server/auth";
+import {
+  createSessionCookieHeader,
+  hashPassword,
+  signSessionToken,
+} from "@/lib/server/auth";
 import {
   extractActorFromRequest,
   getEnvelopeMasterSecret,
@@ -81,7 +85,7 @@ export async function PATCH(request: Request) {
       maskedKeys[provider] = env.maskedPreview;
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       profile: {
         name: actor.userRecord.name,
         email: actor.userRecord.email,
@@ -90,6 +94,18 @@ export async function PATCH(request: Request) {
       },
       maskedKeys,
     });
+    if (action === "update_profile") {
+      const token = signSessionToken({
+        userId: actor.userRecord.id,
+        email: actor.userRecord.email,
+        name: actor.userRecord.name,
+        tier: actor.userRecord.tier,
+        roles: actor.roles,
+        exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
+      response.headers.set("set-cookie", createSessionCookieHeader(token));
+    }
+    return response;
   } catch {
     return NextResponse.json(
       { error: "Invalid settings request." },
