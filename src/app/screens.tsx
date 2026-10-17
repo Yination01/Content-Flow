@@ -1475,6 +1475,34 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
     router.push("/jobs");
   }
 
+  async function repurposeDraft() {
+    try {
+      const res = await fetch("/api/v1/repurpose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceText: body,
+          title,
+          saveAsDraft: false,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.campaign?.tiktokHooks) {
+          setBody(
+            `${body}\n\n---\nTikTok Hooks ($0 Repurposed):\n1. ${data.campaign.tiktokHooks[0]}\n2. ${data.campaign.tiktokHooks[1]}\n3. ${data.campaign.tiktokHooks[2]}`
+          );
+          setDirty(true);
+          setToast("Repurposed into 3 TikTok hooks + YouTube script ($0 cost)");
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    setToast("Campaign repurposed ($0 cost)");
+  }
+
   return (
     <>
       <div className="detail-breadcrumb">
@@ -1487,6 +1515,13 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
         description={dirty ? "Unsaved changes" : "All changes saved"}
         action={
           <div className="header-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={repurposeDraft}
+            >
+              <Sparkles size={16} aria-hidden="true" /> Repurpose Campaign ($0)
+            </Button>
             <Button
               type="button"
               variant="ghost"

@@ -1,0 +1,22 @@
+name: ContentFlow Zero-Cost Scheduled Worker Tick
+
+on:
+  schedule:
+    # Runs every 15 minutes on GitHub Actions Free Tier ($0.00 cost on public repos)
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  worker-tick:
+    name: Trigger /api/v1/worker/tick ($0 Cron)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping ContentFlow Worker Tick Endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "APP_URL secret not configured yet; skipping remote HTTP ping."
+            exit 0
+          fi
+          curl -fsS -X POST "${APP_URL%/}/api/v1/worker/tick"
