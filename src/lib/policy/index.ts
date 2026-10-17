@@ -65,13 +65,46 @@ export interface QuotaCheckResult {
   reason?: string;
 }
 
+export function resolveEffectiveTier(
+  tier: SubscriptionTier,
+  roles?: readonly string[]
+): SubscriptionTier {
+  if (roles?.includes("superuser")) {
+    return "AGENCY";
+  }
+  return tier;
+}
+
 export function checkUserQuota(
   tier: SubscriptionTier,
   usage: UsageSnapshot,
   action: QuotaAction,
-  options?: { isCacheHit?: boolean; additionalStorageMb?: number }
+  options?: {
+    isCacheHit?: boolean;
+    additionalStorageMb?: number;
+    roles?: readonly string[];
+  }
 ): QuotaCheckResult {
-  const limits = TIER_LIMITS[tier];
+  if (options?.roles?.includes("superuser")) {
+    return {
+      allowed: true,
+      remaining: -1,
+      unlimited: true,
+      limit: -1,
+      resetPeriod:
+        action === "ai_generation"
+          ? "daily_utc"
+          : action === "video_render"
+            ? "capability"
+            : action === "storage_upload"
+              ? "storage"
+              : "monthly_utc",
+      quotaConsumed: false,
+    };
+  }
+
+  const effectiveTier = resolveEffectiveTier(tier, options?.roles);
+  const limits = TIER_LIMITS[effectiveTier];
 
   if (action === "ai_generation") {
     const limit = limits.ai_generations_per_day;
