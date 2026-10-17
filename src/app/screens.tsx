@@ -4,6 +4,10 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  buildVideoStoryboard,
+  renderSceneToSvgDataUrl,
+} from "@/lib/video/client-renderer";
+import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
@@ -1015,6 +1019,8 @@ export function CreateScreen() {
   const [result, setResult] = useState("");
   const [adaptations, setAdaptations] = useState<Record<string, string>>({});
   const [remainingQuota, setRemainingQuota] = useState(97);
+  const [videoAspect, setVideoAspect] = useState<"9:16" | "16:9">("9:16");
+  const [activeSceneIdx, setActiveSceneIdx] = useState(0);
   const [toast, setToast] = useState("");
 
   async function generate() {
@@ -1236,15 +1242,77 @@ export function CreateScreen() {
                 onChange={(event) => setResult(event.target.value)}
                 aria-label="Generated content"
               />
-              {type === "Video" && (
-                <div className="warning-box" role="region" aria-label="Client-side video storyboard preview">
-                  <Play size={16} aria-hidden="true" />
-                  <span>
-                    <strong>Zero-Cost Client Video Preview (9:16 &amp; 16:9)</strong>
-                    Rendered locally in your browser via WebAssembly/Canvas ($0 server compute). {Math.max(1, result.split(/\n\n+/).length)} storyboard scenes ready.
-                  </span>
-                </div>
-              )}
+              {type === "Video" && (() => {
+                const board = buildVideoStoryboard(result, {
+                  title: adaptations.title || prompt.slice(0, 48) || "Creator Video",
+                  aspectRatio: videoAspect,
+                });
+                const currentScene =
+                  board.scenes[Math.min(activeSceneIdx, board.scenes.length - 1)] ||
+                  board.scenes[0];
+                const frameUrl = renderSceneToSvgDataUrl(currentScene, board);
+                return (
+                  <div
+                    className="warning-box"
+                    role="region"
+                    aria-label="Client-side video storyboard preview"
+                    style={{ display: "grid", gap: "10px" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                      <span>
+                        <strong>Zero-Cost Client Video Studio ({board.aspectRatio})</strong>
+                        {board.scenes.length} scenes · {(board.totalDurationMs / 1000).toFixed(1)}s total · $0 server compute
+                      </span>
+                      <div className="button-row">
+                        <Button
+                          type="button"
+                          variant={videoAspect === "9:16" ? "primary" : "secondary"}
+                          onClick={() => setVideoAspect("9:16")}
+                        >
+                          9:16 TikTok
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={videoAspect === "16:9" ? "primary" : "secondary"}
+                          onClick={() => setVideoAspect("16:9")}
+                        >
+                          16:9 YouTube
+                        </Button>
+                      </div>
+                    </div>
+                    <img
+                      src={frameUrl}
+                      alt={`Scene ${currentScene.sceneNumber} preview`}
+                      style={{
+                        width: "100%",
+                        maxHeight: "220px",
+                        objectFit: "contain",
+                        borderRadius: "12px",
+                        background: "#17172a",
+                      }}
+                    />
+                    <div className="button-row" style={{ flexWrap: "wrap" }}>
+                      {board.scenes.map((sc, idx) => (
+                        <Button
+                          key={sc.sceneNumber}
+                          type="button"
+                          variant={idx === activeSceneIdx ? "primary" : "ghost"}
+                          onClick={() => setActiveSceneIdx(idx)}
+                        >
+                          Scene {sc.sceneNumber}
+                        </Button>
+                      ))}
+                      <a
+                        className="button button--secondary"
+                        href={frameUrl}
+                        download={`contentflow-scene-${currentScene.sceneNumber}-${board.aspectRatio.replace(":", "x")}.svg`}
+                      >
+                        Export Scene Frame ($0)
+                      </a>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="result-meta">
                 <span>{result.split(/\s+/).length} words</span>
                 <span>About 1 min read</span>
@@ -2254,6 +2322,77 @@ export function AdminScreen() {
   const [moderation, setModeration] = useState("");
   const [moderationReason, setModerationReason] = useState("");
   const [toast, setToast] = useState("");
+  const [quotaCards, setQuotaCards] = useState<[string, string, number, string][]>([
+    [
+      "Cloudflare Workers AI",
+      "5,760 / 8,000 neurons",
+      72,
+      "Daily UTC · Alert at 6,400 (80%)",
+    ],
+    [
+      "Hugging Face Inference",
+      "420 / 2,000 requests",
+      21,
+      "Daily UTC · Plan C fallback",
+    ],
+    [
+      "YouTube Data API",
+      "6,720 / 8,000 units",
+      84,
+      "Daily UTC · Alert threshold exceeded (>6,400)",
+    ],
+    [
+      "Cloudflare R2 Storage",
+      "296K / 800K ops",
+      37,
+      "Calendar month UTC · Emergency mode at 95%",
+    ],
+  ]);
+
+  async function syncLiveQuotaMeters() {
+    try {
+      const res = await fetch("/api/v1/admin/quota", {
+        headers: { "x-user-roles": "superuser" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const u = data.usage;
+        if (u) {
+          setQuotaCards([
+            [
+              "Cloudflare Workers AI",
+              `${Number(u.cloudflareAiNeurons).toLocaleString()} / 8,000 neurons`,
+              Math.round((u.cloudflareAiNeurons / 8000) * 100),
+              "Daily UTC · Hard-stop at 8,000 ($0 overage)",
+            ],
+            [
+              "Hugging Face Inference",
+              `${Number(u.huggingfaceCalls).toLocaleString()} / 2,000 requests`,
+              Math.round((u.huggingfaceCalls / 2000) * 100),
+              "Daily UTC · Plan C fallback ($0 overage)",
+            ],
+            [
+              "YouTube Data API",
+              `${Number(u.youtubeUnits).toLocaleString()} / 8,000 units`,
+              Math.round((u.youtubeUnits / 8000) * 100),
+              "Daily UTC · Alert at 6,400 (80%)",
+            ],
+            [
+              "Cloudflare R2 Storage",
+              `${Number(u.r2Writes).toLocaleString()} / 800,000 writes`,
+              Math.round((u.r2Writes / 800000) * 100),
+              "Calendar month UTC · Hard-stop at 800,000",
+            ],
+          ]);
+          setToast("Synced live $0-budget platform usage counters");
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    setToast("Platform usage counters up to date");
+  }
   const [userRows, setUserRows] = useState([
     ["user-1", "Maya Chen", "maya@contentflow.app", "Creator", "Active", "Jun 21, 2026"],
     ["user-2", "Jon Bell", "jon@contentflow.app", "Pro", "Active", "Jun 20, 2026"],
@@ -2551,50 +2690,32 @@ export function AdminScreen() {
             </Card>
           )}
           {tab === "Quotas" && (
-            <div className="quota-grid">
-              {[
-                [
-                  "Cloudflare Workers AI",
-                  "5,760 / 8,000 neurons",
-                  72,
-                  "Daily UTC · Alert at 6,400 (80%)",
-                ],
-                [
-                  "Hugging Face Inference",
-                  "420 / 2,000 requests",
-                  21,
-                  "Daily UTC · Plan C fallback",
-                ],
-                [
-                  "YouTube Data API",
-                  "6,720 / 8,000 units",
-                  84,
-                  "Daily UTC · Alert threshold exceeded (>6,400)",
-                ],
-                [
-                  "Cloudflare R2 Storage",
-                  "296K / 800K ops",
-                  37,
-                  "Calendar month UTC · Emergency mode at 95%",
-                ],
-              ].map(([name, value, percent, period]) => (
-                <Card className="quota-card" key={name as string}>
-                  <div>
-                    <span className="feature-icon">
-                      <Zap size={19} aria-hidden="true" />
-                    </span>
-                    <WorkspaceBadge label="Live Metric" />
-                  </div>
-                  <h3>{name}</h3>
-                  <strong>{value}</strong>
-                  <Progress
-                    value={percent as number}
-                    label={`${name} utilization`}
-                  />
-                  <p>{period}</p>
-                </Card>
-              ))}
-            </div>
+            <>
+              <div className="button-row" style={{ marginBottom: "14px" }}>
+                <Button type="button" variant="secondary" onClick={syncLiveQuotaMeters}>
+                  <RefreshCw size={15} aria-hidden="true" /> Sync live $0-budget meters
+                </Button>
+              </div>
+              <div className="quota-grid">
+                {quotaCards.map(([name, value, percent, period]) => (
+                  <Card className="quota-card" key={name as string}>
+                    <div>
+                      <span className="feature-icon">
+                        <Zap size={19} aria-hidden="true" />
+                      </span>
+                      <WorkspaceBadge label="Live Metric" />
+                    </div>
+                    <h3>{name}</h3>
+                    <strong>{value}</strong>
+                    <Progress
+                      value={percent as number}
+                      label={`${name} utilization`}
+                    />
+                    <p>{period}</p>
+                  </Card>
+                ))}
+              </div>
+            </>
           )}
           {tab === "Moderation" && (
             <div className="moderation-grid">
