@@ -58,6 +58,7 @@ p { color: var(--muted); line-height: 1.65; }
 .input:focus, .textarea:focus, .prompt-area:focus { border-color: var(--primary); outline: 3px solid rgba(91,79,233,.12); }
 .textarea { resize: vertical; line-height: 1.55; }
 .input--error { border-color: var(--red-ink); }
+.input--valid { border-color: var(--mint-ink); }
 .field__error { font-size: .78rem; color: var(--red-ink); }
 .field__hint { font-size: .76rem; color: var(--muted); text-align: right; }
 .status, .demo-badge, .connection-state { display: inline-flex; width: fit-content; align-items: center; gap: 5px; border-radius: 999px; font-size: .7rem; font-weight: 700; text-transform: capitalize; padding: 4px 8px; line-height: 1; white-space: nowrap; }
@@ -556,4 +557,13 @@ td small { color: var(--muted); margin-top: 4px; font-size: .66rem; }
   .toast { left: 16px; right: 16px; bottom: 16px; }
   .notes-page { padding: 90px 16px 30px; align-items: start; }
   .notes-page > .card { padding: 25px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,5 +1,19 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
-import { CheckCircle2, CircleAlert, Clock3, LoaderCircle, XCircle } from "lucide-react";
+"use client";
+
+import {
+  useEffect,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+} from "react";
+import {
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  LoaderCircle,
+  XCircle,
+} from "lucide-react";
 
 export function Button({
   variant = "primary",
@@ -12,7 +26,11 @@ export function Button({
   loading?: boolean;
 }) {
   return (
-    <button className={`button button--${variant} ${className}`} disabled={loading || props.disabled} {...props}>
+    <button
+      className={`button button--${variant} ${className}`}
+      disabled={loading || props.disabled}
+      {...props}
+    >
       {loading && <LoaderCircle size={16} className="spin" aria-hidden="true" />}
       {children}
     </button>
@@ -22,14 +40,30 @@ export function Button({
 export function Field({
   label,
   error,
+  valid,
   hint,
   ...props
-}: InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string; hint?: string }) {
+}: InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  error?: string;
+  valid?: boolean;
+  hint?: string;
+}) {
   return (
     <label className="field">
       <span className="field__label">{label}</span>
-      <input className={error ? "input input--error" : "input"} aria-invalid={Boolean(error)} {...props} />
-      {(error || hint) && <span className={error ? "field__error" : "field__hint"}>{error || hint}</span>}
+      <input
+        className={
+          error ? "input input--error" : valid ? "input input--valid" : "input"
+        }
+        aria-invalid={Boolean(error)}
+        {...props}
+      />
+      {(error || hint) && (
+        <span className={error ? "field__error" : "field__hint"}>
+          {error || hint}
+        </span>
+      )}
     </label>
   );
 }
@@ -39,34 +73,59 @@ export function TextArea({
   error,
   hint,
   ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; error?: string; hint?: ReactNode }) {
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  label: string;
+  error?: string;
+  hint?: ReactNode;
+}) {
   return (
     <label className="field">
       <span className="field__label">{label}</span>
-      <textarea className={error ? "textarea input--error" : "textarea"} aria-invalid={Boolean(error)} {...props} />
-      {(error || hint) && <span className={error ? "field__error" : "field__hint"}>{error || hint}</span>}
+      <textarea
+        className={error ? "textarea input--error" : "textarea"}
+        aria-invalid={Boolean(error)}
+        {...props}
+      />
+      {(error || hint) && (
+        <span className={error ? "field__error" : "field__hint"}>
+          {error || hint}
+        </span>
+      )}
     </label>
   );
 }
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Card({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return <section className={`card ${className}`}>{children}</section>;
 }
 
-export type Status = "draft" | "ready" | "pending" | "processing" | "completed" | "failed" | "cancelled";
+export type Status =
+  | "draft"
+  | "ready"
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export function StatusBadge({ status }: { status: Status }) {
   const icon =
     status === "completed" || status === "ready" ? (
-      <CheckCircle2 size={13} />
+      <CheckCircle2 size={13} aria-hidden="true" />
     ) : status === "failed" || status === "cancelled" ? (
-      <XCircle size={13} />
+      <XCircle size={13} aria-hidden="true" />
     ) : status === "processing" ? (
-      <LoaderCircle size={13} className="spin" />
+      <LoaderCircle size={13} className="spin" aria-hidden="true" />
     ) : status === "pending" ? (
-      <Clock3 size={13} />
+      <Clock3 size={13} aria-hidden="true" />
     ) : (
-      <CircleAlert size={13} />
+      <CircleAlert size={13} aria-hidden="true" />
     );
   return (
     <span className={`status status--${status}`}>
@@ -77,14 +136,28 @@ export function StatusBadge({ status }: { status: Status }) {
 }
 
 export function DemoBadge({ planned = false }: { planned?: boolean }) {
-  return <span className="demo-badge">{planned ? "Planned" : "Demo mode"}</span>;
+  return (
+    <span className="demo-badge">{planned ? "Planned" : "Demo mode"}</span>
+  );
 }
 
 export function Progress({ value, label }: { value: number; label?: string }) {
   return (
     <div className="progress-wrap">
-      {label && <div className="progress-label"><span>{label}</span><strong>{value}%</strong></div>}
-      <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value}>
+      {label && (
+        <div className="progress-label">
+          <span>{label}</span>
+          <strong>{value}%</strong>
+        </div>
+      )}
+      <div
+        className="progress"
+        role="progressbar"
+        aria-label={label || "Progress"}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={value}
+      >
         <span style={{ width: `${value}%` }} />
       </div>
     </div>
@@ -127,7 +200,10 @@ export function MetricCard({
 }) {
   return (
     <Card className="metric">
-      <div className="metric__top"><span>{label}</span>{icon}</div>
+      <div className="metric__top">
+        <span>{label}</span>
+        {icon}
+      </div>
       <strong>{value}</strong>
       <small>{detail}</small>
     </Card>
@@ -169,6 +245,7 @@ export function Tabs({
       {items.map((item) => (
         <button
           key={item}
+          type="button"
           className={active === item ? "tab tab--active" : "tab"}
           onClick={() => onChange(item)}
           role="tab"
@@ -200,28 +277,59 @@ export function Dialog({
   onClose: () => void;
   children?: ReactNode;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
     <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <h2 id="dialog-title">{title}</h2>
         {body && <p>{body}</p>}
         {children}
         <div className="dialog__actions">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant={destructive ? "destructive" : "primary"} onClick={onConfirm}>{confirmLabel}</Button>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant={destructive ? "destructive" : "primary"}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </Button>
         </div>
       </div>
     </div>
   );
 }
 
-export function Toast({ message, onClose }: { message: string; onClose: () => void }) {
+export function Toast({
+  message,
+  onClose,
+}: {
+  message: string;
+  onClose: () => void;
+}) {
   return (
-    <div className="toast" role="status">
-      <CheckCircle2 size={18} />
+    <div className="toast" role="status" aria-live="polite">
+      <CheckCircle2 size={18} aria-hidden="true" />
       <span>{message}</span>
-      <button onClick={onClose} aria-label="Dismiss notification">×</button>
+      <button type="button" onClick={onClose} aria-label="Dismiss notification">
+        ×
+      </button>
     </div>
   );
 }
@@ -229,7 +337,9 @@ export function Toast({ message, onClose }: { message: string; onClose: () => vo
 export function Skeleton({ lines = 3 }: { lines?: number }) {
   return (
     <div className="skeleton" aria-label="Loading content">
-      {Array.from({ length: lines }).map((_, index) => <span key={index} />)}
+      {Array.from({ length: lines }).map((_, index) => (
+        <span key={index} />
+      ))}
     </div>
   );
 }
