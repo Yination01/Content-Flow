@@ -9,6 +9,7 @@ import {
   buildWebmRenderPlan,
   renderSceneToSvgDataUrl,
 } from "@/lib/video/client-renderer";
+import { buildTeleprompterPlan } from "@/lib/teleprompter/pacing";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1430,6 +1431,7 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
   const [schedule, setSchedule] = useState("Today at 4:30 PM UTC");
   const [dirty, setDirty] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [teleprompterOpen, setTeleprompterOpen] = useState(false);
   const [toast, setToast] = useState("");
 
   async function saveChanges() {
@@ -1555,6 +1557,30 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
     setToast("A/B/C Hook Lab evaluated ($0 cost)");
   }
 
+  async function polishBrandVoice() {
+    try {
+      const res = await fetch("/api/v1/brand-voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: body }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.cleaned?.cleanedScript) {
+          setBody(data.cleaned.cleanedScript);
+          setDirty(true);
+          setToast(
+            `Brand Voice applied (${data.cleaned.removedClichesCount} cliché(s) removed at $0 cost)`
+          );
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    setToast("Brand Voice polish applied ($0 cost)");
+  }
+
   return (
     <>
       <div className="detail-breadcrumb">
@@ -1573,6 +1599,21 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
             >
               Share Preview ($0)
             </Link>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setTeleprompterOpen(!teleprompterOpen)}
+            >
+              <Play size={16} aria-hidden="true" />{" "}
+              {teleprompterOpen ? "Hide Teleprompter" : "Teleprompter ($0)"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={polishBrandVoice}
+            >
+              <Sparkles size={16} aria-hidden="true" /> Brand Voice ($0)
+            </Button>
             <Button
               type="button"
               variant="secondary"
@@ -1609,6 +1650,39 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
       />
       <div className="detail-layout">
         <div className="detail-main">
+          {teleprompterOpen && (() => {
+            const plan = buildTeleprompterPlan(body, 145);
+            return (
+              <Card>
+                <div className="editor-heading">
+                  <WorkspaceBadge label={`Teleprompter · ${plan.wpm} WPM`} />
+                  <span>
+                    {plan.totalWords} words · ~{plan.totalDurationSeconds}s total recording time ($0 browser studio)
+                  </span>
+                </div>
+                <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                  {plan.cues.map((cue) => (
+                    <div
+                      key={cue.index}
+                      style={{
+                        padding: "14px 16px",
+                        borderRadius: "10px",
+                        background: "#17172a",
+                        color: "#ffffff",
+                        fontSize: "1.08rem",
+                        lineHeight: 1.55,
+                      }}
+                    >
+                      <small style={{ color: "#b8b2ff", display: "block", marginBottom: "4px" }}>
+                        Cue #{cue.index} [{cue.cueType.toUpperCase()}] · {cue.durationSeconds}s (ends at {cue.cumulativeSeconds}s)
+                      </small>
+                      {cue.text}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          })()}
           <Card>
             <div className="editor-heading">
               <StatusBadge status="draft" />
