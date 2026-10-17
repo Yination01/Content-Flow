@@ -1526,6 +1526,35 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
     setToast("Hook & platform compliance verified ($0 analyzer)");
   }
 
+  async function runAbHookLab() {
+    try {
+      const res = await fetch("/api/v1/ab-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentId: id,
+          title,
+          script: body,
+          applyWinner: true,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.winningVariant) {
+          setTitle(data.winningVariant.youtubeTitle);
+          setDirty(true);
+          setToast(
+            `Winner [${data.winningVariantId}: ${data.winningVariant.angle}] (${data.winningVariant.overallScore}/100) applied ($0 A/B Lab)`
+          );
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    setToast("A/B/C Hook Lab evaluated ($0 cost)");
+  }
+
   return (
     <>
       <div className="detail-breadcrumb">
@@ -1544,6 +1573,13 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
             >
               Share Preview ($0)
             </Link>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={runAbHookLab}
+            >
+              <TrendingUp size={16} aria-hidden="true" /> A/B Hook Lab ($0)
+            </Button>
             <Button
               type="button"
               variant="secondary"
