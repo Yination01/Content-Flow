@@ -1,0 +1,33 @@
+name: ContentFlow CI & Zero-Cost Verification
+
+on:
+  push:
+    branches: ["main", "arena/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  verify:
+    name: Test, Typecheck & Production Build ($0 GitHub Actions Free Tier)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest unit, provider, API, zero-budget & UI tests
+        run: npm test
+
+      - name: Run TypeScript strict check
+        run: npm run typecheck
+
+      - name: Build production Next.js bundle
+        run: npm run build

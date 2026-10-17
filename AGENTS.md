@@ -1,41 +1,25 @@
-# figma-make-app
+# ContentFlow Web Application
 
-React + Vite + Tailwind CSS project running inside Figma Make.
-
-## Development Server
-
-A Vite development server is **already running** on `$PORT` (default 8443). You don't need to start it manually.
-
-- Preview URL: The user can access the running app through the preview panel
-- Hot reload: Changes to source files are reflected immediately
+Next.js 14 App Router + TypeScript + Tailwind CSS v4 project for ContentFlow.
 
 ## Project Structure
 
-This is the canonical project structure. Start with task-relevant files below. Only follow imports or inspect other files when required, when a documented path is missing, or when the repository contradicts this guide.
+- `src/app/` — Next.js 14 App Router pages, layouts, metadata routes (`robots.ts`, `sitemap.ts`), and `/api/v1/*` route handlers
+- `src/app/screens.tsx` — Client screen components for marketing, auth, creator workspace, settings, admin, and legal pages
+- `src/app/ui.tsx` — Shared accessible UI primitives (`Button`, `Field`, `TextArea`, `Card`, `StatusBadge`, `WorkspaceBadge`, `Progress`, `Dialog`, `Tabs`, `Toast`, `Skeleton`)
+- `src/app/state.tsx` — Client workspace state provider
+- `src/lib/policy/index.ts` — Shared server-side domain policy engine (tier quotas, UTC reset windows, 80%/95% platform budget guardrails, AI provider fallback chain, AES-256-GCM BYOK encryption, Paystack HMAC-SHA512 verification, job state machine, and RBAC/ownership checks)
+- `src/lib/providers/index.ts` — Production provider adapters (OpenAI, Replicate, Cloudflare Workers AI, Hugging Face, Paystack, Cloudflare R2 presigned uploads, YouTube/TikTok OAuth 2.0 PKCE)
+- `src/lib/server/auth.ts` — `scrypt` password hashing and `HMAC-SHA256` signed `HttpOnly` session cookies
+- `src/lib/server/store.ts` — Persistent database engine (disk + Supabase PostgreSQL)
+- `src/index.css` — Global CSS and Tailwind CSS v4 import (`@import "tailwindcss";`)
+- `supabase/migrations/0001_contentflow_init.sql` — Hardened PostgreSQL schema migration with RLS, `SKIP LOCKED` job claiming, and atomic quota functions
+- `docs/ARCHITECTURE.md` — Technical and security architecture reference
 
-- `src/main.tsx` - React entrypoint; imports `src/index.css` and mounts `src/App.tsx` into the `#root` element
-- `src/App.tsx` - Primary application component and the usual starting point for UI work
-- `src/index.css` - Global CSS entrypoint and Tailwind CSS v4 import
-- `index.html` - Vite HTML shell containing the `#root` element and loading `src/main.tsx`
-- `package.json` - Project dependencies and the Vite build, development, preview, and formatting scripts
-- `vite.config.ts` - Vite configuration with React, Tailwind CSS v4, and Figma Make plugins plus the `@` alias for `src`
-- `.mise.toml` - Toolchain versions for Node.js and pnpm
+## Commands
 
-## Dependencies
-
-- Runtime: React 19 and React DOM 19
-- Styling: Tailwind CSS v4 with the `@tailwindcss/vite` plugin
-- Build tooling: Vite 8, TypeScript 5.7, and `@vitejs/plugin-react`
-- Formatting: oxfmt
-
-## Styling
-
-This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin configured in `vite.config.ts`. `src/index.css` imports Tailwind with `@import 'tailwindcss';`. Use Tailwind utility classes directly in JSX and put global CSS or Tailwind v4 theme customization in `src/index.css`. This scaffold does not need a Tailwind config file or PostCSS config.
-
-`src/main.tsx` imports `src/index.css`, so global font wiring belongs in `src/index.css`. Keep CSS `@import` statements first, then add any `@font-face` rules and font-family defaults there.
-
-## Code quality
-
-- Use double quotes for strings containing apostrophes (`"We're here to help"`), or escape them in single-quoted strings. An unescaped apostrophe in a single-quoted string breaks the build.
-- Ensure JSX tags are closed and braces are balanced.
-- Export components as default exports.
+- `npm run dev` — Start Next.js development server on `0.0.0.0:3000`
+- `npm run build` — Production build (`next build`)
+- `npm run start` — Start production server on `0.0.0.0:3000`
+- `npm test` — Run Vitest unit, provider, API, and component test suites
+- `npm run typecheck` — Run TypeScript compiler verification (`tsc --noEmit`)

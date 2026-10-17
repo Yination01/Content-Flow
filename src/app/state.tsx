@@ -1,3 +1,5 @@
+"use client";
+
 import { createContext, useContext, useState, type ReactNode } from "react";
 import type { Status } from "./ui";
 
@@ -23,8 +25,30 @@ const StateContext = createContext<AppState | null>(null);
 export function StateProvider({ children }: { children: ReactNode }) {
   const [hasContent, setHasContent] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([
-    { id: 1048, content: "3 habits that improved my focus", platform: "TikTok", schedule: "Today, 4:30 PM", status: "completed", attempts: 1 },
-    { id: 1047, content: "Build a calmer morning routine", platform: "YouTube", schedule: "Jun 18, 10:00 AM", status: "failed", attempts: 2 },
+    {
+      id: 1049,
+      content: "A creator's guide to consistent content",
+      platform: "YouTube",
+      schedule: "Tomorrow, 9:00 AM UTC",
+      status: "pending",
+      attempts: 0,
+    },
+    {
+      id: 1048,
+      content: "3 habits that improved my focus",
+      platform: "TikTok",
+      schedule: "Today, 4:30 PM UTC",
+      status: "completed",
+      attempts: 1,
+    },
+    {
+      id: 1047,
+      content: "Build a calmer morning routine",
+      platform: "YouTube",
+      schedule: "Jun 18, 10:00 AM UTC",
+      status: "failed",
+      attempts: 2,
+    },
   ]);
 
   function addJobs(platforms: string[], schedule: string) {
@@ -40,10 +64,20 @@ export function StateProvider({ children }: { children: ReactNode }) {
   }
 
   function updateJob(id: number, status: Status) {
-    setJobs((current) => current.map((job) => (job.id === id ? { ...job, status, attempts: job.attempts + 1 } : job)));
+    setJobs((current) =>
+      current.map((job) =>
+        job.id === id ? { ...job, status, attempts: job.attempts + 1 } : job
+      )
+    );
   }
 
-  return <StateContext.Provider value={{ hasContent, setHasContent, jobs, addJobs, updateJob }}>{children}</StateContext.Provider>;
+  return (
+    <StateContext.Provider
+      value={{ hasContent, setHasContent, jobs, addJobs, updateJob }}
+    >
+      {children}
+    </StateContext.Provider>
+  );
 }
 
 export function useAppState() {

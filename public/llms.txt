@@ -1,0 +1,24 @@
+# ContentFlow
+
+> ContentFlow is an AI-powered content creation and cross-platform distribution platform built for YouTube and TikTok creators.
+
+## Product Overview
+- **Frontend**: Next.js 14 App Router + Tailwind CSS v4
+- **Backend & Data**: Supabase PostgreSQL (with strict Row-Level Security), Edge Functions, and Cloudflare R2 object storage
+- **AI Routing Policy**:
+  - Plan A: User BYOK (OpenAI / Replicate) with server-side AES-256-GCM envelope encryption or per-request headers
+  - Plan B: Cloudflare Workers AI
+  - Plan C: Hugging Face Inference API fallback
+  - Plan D: Explicit client-side transformers.js fallback notice
+- **Quota & Billing Policy**:
+  - Daily quotas reset at 00:00 UTC; monthly quotas reset on the 1st at 00:00 UTC
+  - User-scoped exact-match AI cache hits do not consume daily generation quota
+  - Tiers: Free ($0), Creator ($9), Pro ($29), Agency ($99) with USD/NGN Paystack server-side price tables
+
+## Key Public Routes
+- `/`: Marketing landing page, features, pricing, and FAQ
+- `/login`: Creator sign-in
+- `/signup`: Free workspace registration
+- `/privacy`: Privacy Policy
+- `/terms`: Terms of Service
+- `/notes`: Architecture & Product Policy Notes
