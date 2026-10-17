@@ -4,9 +4,28 @@ import {
   signSessionToken,
   verifyPassword,
 } from "@/lib/server/auth";
+import { checkRateLimit, extractRateLimitKey } from "@/lib/server/rate-limit";
 import { getApiStore } from "@/lib/server/store";
 
 export async function POST(request: Request) {
+  const rl = checkRateLimit(extractRateLimitKey(request, "auth-login"), 10, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      {
+        error: "Too many sign-in attempts. Please wait before trying again.",
+        retryAfterSeconds: rl.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rl.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rl.limit),
+          "X-RateLimit-Remaining": "0",
+        },
+      }
+    );
+  }
+
   try {
     const body = await request.json();
     const email =

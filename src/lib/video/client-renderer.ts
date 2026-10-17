@@ -110,6 +110,40 @@ export function buildWebmRenderPlan(
   };
 }
 
+function formatSubtitleTimestamp(
+  ms: number,
+  separator: "," | "."
+): string {
+  const totalMs = Math.max(0, Math.floor(ms));
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+  const seconds = Math.floor((totalMs % 60_000) / 1000);
+  const millis = totalMs % 1000;
+
+  const hh = String(hours).padStart(2, "0");
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  const mmm = String(millis).padStart(3, "0");
+  return `${hh}:${mm}:${ss}${separator}${mmm}`;
+}
+
+export function buildSubtitlesFromStoryboard(
+  board: VideoStoryboard,
+  format: "srt" | "vtt" = "srt"
+): string {
+  const sep = format === "srt" ? "," : ".";
+  const blocks = board.scenes.map((scene) => {
+    const start = formatSubtitleTimestamp(scene.startMs, sep);
+    const end = formatSubtitleTimestamp(scene.endMs, sep);
+    return `${scene.sceneNumber}\n${start} --> ${end}\n${scene.caption}`;
+  });
+
+  if (format === "vtt") {
+    return `WEBVTT\n\n${blocks.join("\n\n")}\n`;
+  }
+  return `${blocks.join("\n\n")}\n`;
+}
+
 function escapeXml(unsafe: string): string {
   return unsafe
     .replace(/&/g, "&amp;")

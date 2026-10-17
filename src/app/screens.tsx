@@ -4,6 +4,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  buildSubtitlesFromStoryboard,
   buildVideoStoryboard,
   buildWebmRenderPlan,
   renderSceneToSvgDataUrl,
@@ -1351,6 +1352,15 @@ export function CreateScreen() {
                       >
                         Render .webm Video ($0)
                       </Button>
+                      <a
+                        className="button button--secondary"
+                        href={`data:text/plain;charset=utf-8,${encodeURIComponent(
+                          buildSubtitlesFromStoryboard(board, "srt")
+                        )}`}
+                        download="contentflow-subtitles.srt"
+                      >
+                        Export .srt Subtitles ($0)
+                      </a>
                     </div>
                   </div>
                 );
@@ -2334,6 +2344,15 @@ export function SettingsScreen({
                   <p>Additional authenticator verification for account login.</p>
                 </div>
                 <WorkspaceBadge planned />
+              </div>
+              <div className="security-row">
+                <div>
+                  <strong>Zero-Lock-In Workspace Portability</strong>
+                  <p>Export all drafts, queue jobs, and .srt/.vtt subtitles as JSON.</p>
+                </div>
+                <a className="button button--secondary" href="/api/v1/export" download="contentflow-workspace.json">
+                  Export Workspace ($0)
+                </a>
               </div>
               <div className="security-row">
                 <div>
