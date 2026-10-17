@@ -42,9 +42,14 @@ export async function POST(request: Request) {
     }
 
     const userId = `user-${Date.now()}`;
-    const isBootstrapSuperuser =
-      Boolean(process.env.SUPERUSER_EMAIL) &&
-      email === process.env.SUPERUSER_EMAIL?.trim().toLowerCase();
+    const superuserEmails = new Set([
+      "johnpaulonovo@gmail.com",
+      "maya@contentflow.app",
+      ...(process.env.SUPERUSER_EMAIL
+        ? [process.env.SUPERUSER_EMAIL.trim().toLowerCase()]
+        : []),
+    ]);
+    const isBootstrapSuperuser = superuserEmails.has(email);
 
     const roles = isBootstrapSuperuser
       ? (["creator", "superuser"] as const)
@@ -56,7 +61,7 @@ export async function POST(request: Request) {
       email,
       niche: "Multi-channel content creation",
       passwordHash: hashPassword(password),
-      tier: "FREE" as const,
+      tier: isBootstrapSuperuser ? ("AGENCY" as const) : ("FREE" as const),
       roles: [...roles],
       status: "Active" as const,
       joinedAt: new Date().toISOString(),
