@@ -1538,6 +1538,12 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
         description={dirty ? "Unsaved changes" : "All changes saved"}
         action={
           <div className="header-actions">
+            <Link
+              className="button button--secondary"
+              href={`/share/${id}`}
+            >
+              Share Preview ($0)
+            </Link>
             <Button
               type="button"
               variant="secondary"
@@ -1821,6 +1827,13 @@ export function JobsScreen() {
         action={
           <div className="button-row">
             <WorkspaceBadge label="SKIP LOCKED Worker" />
+            <a
+              className="button button--secondary"
+              href="/api/v1/calendar.ics"
+              download="contentflow-schedule.ics"
+            >
+              <Calendar size={15} aria-hidden="true" /> Export .ics ($0)
+            </a>
             <Button type="button" variant="secondary" onClick={runWorkerTick}>
               <RefreshCw size={15} aria-hidden="true" /> Run worker tick
             </Button>
