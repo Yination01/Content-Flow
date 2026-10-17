@@ -15,6 +15,22 @@ export interface VideoStoryboard {
   scenes: VideoScene[];
 }
 
+export interface WebmRenderPlan {
+  fps: number;
+  width: number;
+  height: number;
+  totalFrames: number;
+  totalDurationMs: number;
+  mimeCandidates: string[];
+  sceneFrames: Array<{
+    sceneNumber: number;
+    caption: string;
+    startFrame: number;
+    endFrame: number;
+    frameCount: number;
+  }>;
+}
+
 export function buildVideoStoryboard(
   script: string,
   options?: { title?: string; aspectRatio?: "9:16" | "16:9" }
@@ -56,6 +72,44 @@ export function buildVideoStoryboard(
   };
 }
 
+export function buildWebmRenderPlan(
+  board: VideoStoryboard,
+  fps = 30
+): WebmRenderPlan {
+  const safeFps = Math.max(15, Math.min(60, fps));
+  let currentFrame = 0;
+
+  const sceneFrames = board.scenes.map((scene) => {
+    const frameCount = Math.max(
+      1,
+      Math.round((scene.durationMs / 1000) * safeFps)
+    );
+    const entry = {
+      sceneNumber: scene.sceneNumber,
+      caption: scene.caption,
+      startFrame: currentFrame,
+      endFrame: currentFrame + frameCount - 1,
+      frameCount,
+    };
+    currentFrame += frameCount;
+    return entry;
+  });
+
+  return {
+    fps: safeFps,
+    width: board.width,
+    height: board.height,
+    totalFrames: currentFrame,
+    totalDurationMs: board.totalDurationMs,
+    mimeCandidates: [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+    ],
+    sceneFrames,
+  };
+}
+
 function escapeXml(unsafe: string): string {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -67,7 +121,10 @@ function escapeXml(unsafe: string): string {
 
 export function renderSceneToSvgDataUrl(
   scene: VideoScene,
-  board: Pick<VideoStoryboard, "title" | "aspectRatio" | "width" | "height" | "scenes">
+  board: Pick<
+    VideoStoryboard,
+    "title" | "aspectRatio" | "width" | "height" | "scenes"
+  >
 ): string {
   const { width, height, title, aspectRatio } = board;
   const totalScenes = board.scenes.length;

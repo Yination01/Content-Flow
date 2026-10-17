@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   buildVideoStoryboard,
+  buildWebmRenderPlan,
   renderSceneToSvgDataUrl,
 } from "@/lib/video/client-renderer";
 import {
@@ -865,6 +866,30 @@ function ConnectionCard({
 
 export function DashboardScreen() {
   const { hasContent } = useAppState();
+  const [dailyUsed, setDailyUsed] = useState(3);
+  const [monthlyPosts, setMonthlyPosts] = useState(18);
+  const [monthlyCrossPosts, setMonthlyCrossPosts] = useState(12);
+  const [cacheSaved, setCacheSaved] = useState(0);
+
+  async function syncTelemetry() {
+    try {
+      const res = await fetch("/api/v1/analytics");
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.usage) {
+          setDailyUsed(data.usage.dailyAiGenerations ?? 3);
+          setMonthlyPosts(data.usage.monthlyPostsCreated ?? 18);
+          setMonthlyCrossPosts(data.usage.monthlyCrossPosts ?? 12);
+        }
+        if (typeof data?.aiCacheHitsSaved === "number") {
+          setCacheSaved(data.aiCacheHitsSaved);
+        }
+      }
+    } catch {
+      // Offline fallback
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -872,28 +897,33 @@ export function DashboardScreen() {
         title="Good morning, Maya"
         description="Pick up where you left off, or turn a fresh idea into something worth sharing."
         action={
-          <Link className="button button--primary" href="/create">
-            <Plus size={17} aria-hidden="true" /> Create content
-          </Link>
+          <div className="button-row">
+            <Button type="button" variant="secondary" onClick={syncTelemetry}>
+              <RefreshCw size={15} aria-hidden="true" /> Sync live telemetry
+            </Button>
+            <Link className="button button--primary" href="/create">
+              <Plus size={17} aria-hidden="true" /> Create content
+            </Link>
+          </div>
         }
       />
       <div className="metric-grid">
         <MetricCard
           label="Daily AI generations"
-          value="3 / 100"
-          detail="Resets at 00:00 UTC · Cache hits are free"
+          value={`${dailyUsed} / 100`}
+          detail={`Resets at 00:00 UTC · ${cacheSaved} free cache hit(s)`}
           icon={<Sparkles size={19} aria-hidden="true" />}
         />
         <MetricCard
           label="Monthly posts"
-          value="18 / 50"
+          value={`${monthlyPosts} / 50`}
           detail="Resets Nov 1 at 00:00 UTC"
           icon={<Send size={19} aria-hidden="true" />}
         />
         <MetricCard
           label="Cross-posts"
-          value="12 / 100"
-          detail="12% of monthly Creator allowance"
+          value={`${monthlyCrossPosts} / 100`}
+          detail={`${monthlyCrossPosts}% of monthly Creator allowance`}
           icon={<RefreshCw size={19} aria-hidden="true" />}
         />
       </div>
@@ -1309,6 +1339,18 @@ export function CreateScreen() {
                       >
                         Export Scene Frame ($0)
                       </a>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          const plan = buildWebmRenderPlan(board, 30);
+                          setToast(
+                            `Prepared ${plan.totalFrames}-frame ${plan.fps}fps WebM render plan (${plan.mimeCandidates[0]}) at $0 server cost`
+                          );
+                        }}
+                      >
+                        Render .webm Video ($0)
+                      </Button>
                     </div>
                   </div>
                 );

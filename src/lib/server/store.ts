@@ -128,6 +128,8 @@ export interface AuditLogEntry {
 }
 
 export interface PlatformUsageSnapshot {
+  date?: string;
+  month?: string;
   cloudflareAiNeurons: number;
   huggingfaceCalls: number;
   r2Reads: number;
@@ -433,6 +435,8 @@ function createDefaultStore(): ApiStore {
     moderationItems,
     auditLogs: [],
     platformUsage: {
+      date: new Date().toISOString().slice(0, 10),
+      month: new Date().toISOString().slice(0, 7),
       cloudflareAiNeurons: 1200,
       huggingfaceCalls: 240,
       r2Reads: 12000,
@@ -508,6 +512,51 @@ export function getApiStore(): ApiStore {
 
 export function resetApiStore(): void {
   store = createDefaultStore();
+}
+
+export const resetApiStoreForTests = resetApiStore;
+
+export function ensureUtcQuotaReset(
+  targetStore: ApiStore = store,
+  now: Date = new Date()
+): { dailyReset: boolean; monthlyReset: boolean } {
+  const currentDate = now.toISOString().slice(0, 10);
+  const currentMonth = now.toISOString().slice(0, 7);
+  const prevDate = targetStore.platformUsage.date || currentDate;
+  const prevMonth = targetStore.platformUsage.month || currentMonth;
+
+  let dailyReset = false;
+  let monthlyReset = false;
+
+  if (prevDate !== currentDate) {
+    dailyReset = true;
+    targetStore.platformUsage.date = currentDate;
+    targetStore.platformUsage.cloudflareAiNeurons = 0;
+    targetStore.platformUsage.huggingfaceCalls = 0;
+    targetStore.platformUsage.youtubeUnits = 0;
+    targetStore.platformUsage.tiktokCalls = 0;
+    targetStore.platformUsage.vercelInvocations = 0;
+    for (const user of Array.from(targetStore.users.values())) {
+      user.usage.dailyAiGenerations = 0;
+    }
+  }
+
+  if (prevMonth !== currentMonth) {
+    monthlyReset = true;
+    targetStore.platformUsage.month = currentMonth;
+    targetStore.platformUsage.r2Reads = 0;
+    targetStore.platformUsage.r2Writes = 0;
+    for (const user of Array.from(targetStore.users.values())) {
+      user.usage.monthlyPostsCreated = 0;
+      user.usage.monthlyCrossPosts = 0;
+    }
+  }
+
+  if (dailyReset || monthlyReset) {
+    persistApiStore();
+  }
+
+  return { dailyReset, monthlyReset };
 }
 
 // Keep alias for backward compatibility with any external imports
