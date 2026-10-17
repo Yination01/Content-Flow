@@ -135,11 +135,17 @@ export function StatusBadge({ status }: { status: Status }) {
   );
 }
 
-export function DemoBadge({ planned = false }: { planned?: boolean }) {
-  return (
-    <span className="demo-badge">{planned ? "Planned" : "Demo mode"}</span>
-  );
+export function WorkspaceBadge({
+  label = "Active workspace",
+  planned = false,
+}: {
+  label?: string;
+  planned?: boolean;
+}) {
+  return <span className="demo-badge">{planned ? "Planned" : label}</span>;
 }
+
+export const DemoBadge = WorkspaceBadge;
 
 export function Progress({ value, label }: { value: number; label?: string }) {
   return (

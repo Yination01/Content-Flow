@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { authorizeAdminAction, type SubscriptionTier } from "@/lib/policy";
-import { extractActorFromRequest, getDemoApiStore } from "@/lib/server/store";
+import {
+  extractActorFromRequest,
+  getApiStore,
+  persistApiStore,
+} from "@/lib/server/store";
 
 export async function PATCH(
   request: Request,
@@ -9,26 +13,38 @@ export async function PATCH(
   const actor = extractActorFromRequest(request);
   if (!authorizeAdminAction(actor.roles, "tier_mutation")) {
     return NextResponse.json(
-      { error: "Forbidden: Superuser role required to mutate subscription tiers." },
+      {
+        error:
+          "Forbidden: Superuser role required to mutate subscription tiers.",
+      },
       { status: 403 }
     );
   }
 
   try {
     const body = await request.json();
-    const newTier = (typeof body?.tier === "string"
-      ? body.tier.toUpperCase()
-      : "") as SubscriptionTier;
-    const reason = typeof body?.reason === "string" ? body.reason.trim() : "Admin tier update";
+    const newTier = (
+      typeof body?.tier === "string" ? body.tier.toUpperCase() : ""
+    ) as SubscriptionTier;
+    const reason =
+      typeof body?.reason === "string" && body.reason.trim()
+        ? body.reason.trim()
+        : "Admin tier update";
 
     if (!["FREE", "CREATOR", "PRO", "AGENCY"].includes(newTier)) {
-      return NextResponse.json({ error: "Invalid subscription tier." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid subscription tier." },
+        { status: 400 }
+      );
     }
 
-    const store = getDemoApiStore();
+    const store = getApiStore();
     const targetUser = store.users.get(context.params.id);
     if (!targetUser) {
-      return NextResponse.json({ error: "Target user not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Target user not found." },
+        { status: 404 }
+      );
     }
 
     targetUser.tier = newTier;
@@ -41,13 +57,22 @@ export async function PATCH(
       createdAt: new Date().toISOString(),
     };
     store.auditLogs.push(auditLog);
+    persistApiStore();
 
     return NextResponse.json({
-      demo: true,
-      user: targetUser,
+      user: {
+        id: targetUser.id,
+        name: targetUser.name,
+        email: targetUser.email,
+        tier: targetUser.tier,
+        status: targetUser.status,
+      },
       auditLog,
     });
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid request body." },
+      { status: 400 }
+    );
   }
 }

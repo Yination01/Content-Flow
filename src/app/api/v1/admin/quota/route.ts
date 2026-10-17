@@ -9,11 +9,13 @@ import { extractActorFromRequest } from "@/lib/server/store";
 export async function GET(request: Request) {
   const actor = extractActorFromRequest(request);
   if (!authorizeAdminAction(actor.roles, "quota_overview")) {
-    return NextResponse.json({ error: "Forbidden: Superuser role required." }, { status: 403 });
+    return NextResponse.json(
+      { error: "Forbidden: Superuser role required." },
+      { status: 403 }
+    );
   }
 
   return NextResponse.json({
-    demo: true,
     limits: PLATFORM_BUDGET_LIMITS,
     metrics: [
       evaluatePlatformBudget("CF_AI", 5760, "PRO"),

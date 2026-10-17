@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { authorizeResourceAccess } from "@/lib/policy";
-import { extractActorFromRequest, getDemoApiStore } from "@/lib/server/store";
+import { extractActorFromRequest, getApiStore } from "@/lib/server/store";
 
 export async function GET(
   request: Request,
   context: { params: { id: string } }
 ) {
   const actor = extractActorFromRequest(request);
-  const store = getDemoApiStore();
+  const store = getApiStore();
   const job = store.jobs.get(context.params.id);
 
   if (!job) {
@@ -24,5 +24,5 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
-  return NextResponse.json({ demo: true, job });
+  return NextResponse.json({ job });
 }

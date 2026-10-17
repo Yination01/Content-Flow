@@ -1,20 +1,32 @@
 import { NextResponse } from "next/server";
 import {
   checkUserQuota,
+  decryptApiKey,
   getScopedCacheKey,
   getUtcResetWindows,
   selectAiProvider,
 } from "@/lib/policy";
-import { extractActorFromRequest, getDemoApiStore } from "@/lib/server/store";
+import { executeAiGeneration } from "@/lib/providers";
+import {
+  extractActorFromRequest,
+  getApiStore,
+  getEnvelopeMasterSecret,
+  persistApiStore,
+} from "@/lib/server/store";
 
 export async function POST(request: Request) {
   try {
     const actor = extractActorFromRequest(request);
     const body = await request.json();
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
-    const modality = typeof body?.modality === "string" ? body.modality.toLowerCase() : "text";
-    const format = typeof body?.format === "string" ? body.format : "article";
-    const tone = typeof body?.tone === "string" ? body.tone : "warm";
+    const modality = (
+      typeof body?.modality === "string" ? body.modality.toLowerCase() : "text"
+    ) as "text" | "image" | "video";
+    const format = typeof body?.format === "string" ? body.format : "Short article";
+    const tone = typeof body?.tone === "string" ? body.tone : "Clear & encouraging";
+    const platforms = Array.isArray(body?.platforms)
+      ? body.platforms
+      : ["YouTube", "TikTok"];
 
     if (!prompt || prompt.length > 1000) {
       return NextResponse.json(
@@ -31,14 +43,24 @@ export async function POST(request: Request) {
     }
 
     if (modality === "video") {
-      const videoCheck = checkUserQuota(actor.tier, actor.userRecord.usage, "video_render");
+      const videoCheck = checkUserQuota(
+        actor.tier,
+        actor.userRecord.usage,
+        "video_render"
+      );
       if (!videoCheck.allowed) {
         return NextResponse.json({ error: videoCheck.reason }, { status: 403 });
       }
     }
 
-    const store = getDemoApiStore();
-    const cacheKey = getScopedCacheKey(actor.userId, prompt, modality, format, tone);
+    const store = getApiStore();
+    const cacheKey = getScopedCacheKey(
+      actor.userId,
+      prompt,
+      modality,
+      format,
+      tone
+    );
     const cached = store.aiCache.get(cacheKey);
     const nowMs = Date.now();
 
@@ -50,20 +72,24 @@ export async function POST(request: Request) {
         "ai_generation",
         { isCacheHit: true }
       );
+      persistApiStore();
       return NextResponse.json({
-        demo: true,
         cacheHit: true,
         quotaConsumed: Boolean(quotaDecision.quotaConsumed),
         provider: cached.provider,
         result: cached.responseText,
+        adaptations: cached.adaptations,
         remainingDailyGenerations: quotaDecision.remaining,
         resetWindows: getUtcResetWindows(),
       });
     }
 
-    const quotaDecision = checkUserQuota(actor.tier, actor.userRecord.usage, "ai_generation", {
-      isCacheHit: false,
-    });
+    const quotaDecision = checkUserQuota(
+      actor.tier,
+      actor.userRecord.usage,
+      "ai_generation",
+      { isCacheHit: false }
+    );
     if (!quotaDecision.allowed) {
       return NextResponse.json(
         {
@@ -75,11 +101,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const ephemeralByok = request.headers.get("x-byok-key");
+    let decryptedByok: string | undefined =
+      request.headers.get("x-byok-key") || undefined;
+    let byokProvider: "openai" | "replicate" = "openai";
+
+    if (!decryptedByok && actor.userRecord.encryptedByok?.openai && process.env.OPENAI_API_KEY) {
+      try {
+        decryptedByok = decryptApiKey(
+          actor.userRecord.encryptedByok.openai,
+          getEnvelopeMasterSecret()
+        );
+      } catch {
+        decryptedByok = undefined;
+      }
+    }
+
     const providerChoice = selectAiProvider({
       tier: actor.tier,
-      hasValidByok: Boolean(ephemeralByok),
-      byokProvider: "openai",
+      hasValidByok: Boolean(decryptedByok),
+      byokProvider,
       cfAiHealthy: body?.simulateAllProvidersDown ? false : true,
       cfAiUsedToday: 1200,
       hfHealthy: body?.simulateAllProvidersDown ? false : true,
@@ -89,7 +129,6 @@ export async function POST(request: Request) {
     if (providerChoice.fallbackRequired) {
       return NextResponse.json(
         {
-          demo: true,
           fallback_required: true,
           provider: providerChoice.provider,
           reason: providerChoice.reason,
@@ -98,31 +137,53 @@ export async function POST(request: Request) {
       );
     }
 
+    const genOutput = await executeAiGeneration({
+      prompt,
+      modality,
+      tone,
+      format,
+      platforms,
+      byokKey: decryptedByok,
+      byokProvider,
+    });
+
     actor.userRecord.usage.dailyAiGenerations += 1;
-    const generatedText = `Consistency is not about showing up every day; it is about building a creative rhythm you can return to.\n\nDrafted from prompt: "${prompt.slice(0, 120)}"\n\nStart by choosing one core idea worth repeating, then adapt the framing for YouTube and TikTok without losing your voice.`;
+    const adaptations = {
+      title: genOutput.title,
+      youtubeTitle: genOutput.youtubeTitle,
+      youtubeDescription: genOutput.youtubeDescription,
+      youtubeTags: genOutput.youtubeTags,
+      tiktokCaption: genOutput.tiktokCaption,
+      tiktokHashtags: genOutput.tiktokHashtags,
+    };
 
     store.aiCache.set(cacheKey, {
       promptHash: cacheKey,
       userId: actor.userId,
-      responseText: generatedText,
-      provider: providerChoice.provider,
-      tokensUsed: 148,
+      responseText: genOutput.text,
+      adaptations,
+      provider: genOutput.provider,
+      tokensUsed: genOutput.tokensUsed,
       hitCount: 0,
       createdAt: new Date().toISOString(),
       expiresAt: nowMs + 24 * 60 * 60 * 1000,
     });
+    persistApiStore();
 
     return NextResponse.json({
-      demo: true,
       cacheHit: false,
       quotaConsumed: true,
-      plan: providerChoice.plan,
-      provider: providerChoice.provider,
-      result: generatedText,
+      plan: genOutput.plan,
+      provider: genOutput.provider,
+      result: genOutput.text,
+      adaptations,
       remainingDailyGenerations: Math.max(0, quotaDecision.remaining - 1),
       resetWindows: getUtcResetWindows(),
     });
   } catch {
-    return NextResponse.json({ error: "Invalid generation request." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid generation request." },
+      { status: 400 }
+    );
   }
 }
