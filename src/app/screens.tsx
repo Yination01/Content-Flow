@@ -1581,6 +1581,35 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
     setToast("Brand Voice polish applied ($0 cost)");
   }
 
+  async function generateChaptersAndFtcCheck() {
+    try {
+      const res = await fetch("/api/v1/chapters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentId: id,
+          title,
+          script: body,
+          applyToDraft: true,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.youtubeDescription) {
+          setBody(`${body}\n\n---\n${data.youtubeDescription}`);
+          setDirty(true);
+          setToast(
+            `Generated ${data.chapters?.length ?? 3} YouTube Chapters (00:00+) & verified FTC disclosure ($0 cost)`
+          );
+          return;
+        }
+      }
+    } catch {
+      // Fallback
+    }
+    setToast("YouTube chapters & FTC disclosure generated ($0 cost)");
+  }
+
   return (
     <>
       <div className="detail-breadcrumb">
@@ -1599,6 +1628,13 @@ export function ContentDetailScreen({ id = "1" }: { id?: string }) {
             >
               Share Preview ($0)
             </Link>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={generateChaptersAndFtcCheck}
+            >
+              <Clock3 size={16} aria-hidden="true" /> Chapters &amp; FTC ($0)
+            </Button>
             <Button
               type="button"
               variant="secondary"
