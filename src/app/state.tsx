@@ -19,6 +19,15 @@ export type Job = {
   attempts: number;
 };
 
+export interface ConnectedPlatformInfo {
+  connected: boolean;
+  handle: string;
+  channelTitle?: string;
+  scopes?: string[];
+  verifiedAt?: string;
+  expiresAt: string;
+}
+
 export interface CurrentUserProfile {
   id: string;
   name: string;
@@ -27,6 +36,8 @@ export interface CurrentUserProfile {
   tier: "FREE" | "CREATOR" | "PRO" | "AGENCY";
   roles: string[];
   initials: string;
+  twoFactorEnabled?: boolean;
+  maskedKeys?: Record<string, string>;
   usage: {
     dailyAiGenerations: number;
     monthlyPostsCreated: number;
@@ -39,25 +50,40 @@ export interface CurrentUserProfile {
     monthlyCrossPosts: number | null;
     storageMb: number;
   };
-  connectedPlatforms: Record<
-    string,
-    { connected: boolean; handle: string; expiresAt: string }
-  >;
+  connectedPlatforms: Record<string, ConnectedPlatformInfo>;
+}
+
+export function normalizeDisplayName(name?: string, email?: string): string {
+  const cleaned = (name || "").trim();
+  if (
+    cleaned.toLowerCase() === "johnpaulonovo" ||
+    (!cleaned && (email || "").toLowerCase().startsWith("johnpaulonovo@"))
+  ) {
+    return "Johnpaul Onovo";
+  }
+  if (cleaned) return cleaned;
+  if (email && email.includes("@")) {
+    return email
+      .split("@")[0]
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return "Johnpaul Onovo";
 }
 
 export function computeInitials(name: string, email?: string): string {
-  const cleaned = (name || "").trim();
-  if (cleaned) {
-    const parts = cleaned.split(/\s+/).filter(Boolean);
+  const normalized = normalizeDisplayName(name, email);
+  if (normalized) {
+    const parts = normalized.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
       return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
     }
-    return cleaned.slice(0, 2).toUpperCase();
+    return normalized.slice(0, 2).toUpperCase();
   }
   if (email) {
     return email.slice(0, 2).toUpperCase();
   }
-  return "CF";
+  return "JO";
 }
 
 export function formatTierBadgeLabel(
@@ -88,6 +114,8 @@ const DEFAULT_USER_PROFILE: CurrentUserProfile = {
   tier: "AGENCY",
   roles: ["creator", "superuser"],
   initials: "JO",
+  twoFactorEnabled: false,
+  maskedKeys: {},
   usage: {
     dailyAiGenerations: 0,
     monthlyPostsCreated: 0,
@@ -104,12 +132,13 @@ const DEFAULT_USER_PROFILE: CurrentUserProfile = {
 };
 
 const STORAGE_KEY = "cf_user_profile_v1";
+const JOBS_STORAGE_KEY = "cf_user_jobs_v1";
 
 type AppState = {
   hasContent: boolean;
   setHasContent: (value: boolean) => void;
   jobs: Job[];
-  addJobs: (platforms: string[], schedule: string) => void;
+  addJobs: (platforms: string[], schedule: string, title?: string) => void;
   updateJob: (id: number, status: Status) => void;
   currentUser: CurrentUserProfile;
   updateCurrentUser: (partial: Partial<CurrentUserProfile>) => void;
@@ -121,63 +150,54 @@ const StateContext = createContext<AppState | null>(null);
 
 export function StateProvider({ children }: { children: ReactNode }) {
   const [hasContent, setHasContent] = useState(false);
-  const [jobs, setJobs] = useState<Job[]>([
-    {
-      id: 1049,
-      content: "A creator's guide to consistent content",
-      platform: "YouTube",
-      schedule: "Tomorrow, 9:00 AM UTC",
-      status: "pending",
-      attempts: 0,
-    },
-    {
-      id: 1048,
-      content: "3 habits that improved my focus",
-      platform: "TikTok",
-      schedule: "Today, 4:30 PM UTC",
-      status: "completed",
-      attempts: 1,
-    },
-    {
-      id: 1047,
-      content: "Build a calmer morning routine",
-      platform: "YouTube",
-      schedule: "Jun 18, 10:00 AM UTC",
-      status: "failed",
-      attempts: 2,
-    },
-  ]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [currentUser, setCurrentUser] =
     useState<CurrentUserProfile>(DEFAULT_USER_PROFILE);
 
-  function addJobs(platforms: string[], schedule: string) {
+  function addJobs(platforms: string[], schedule: string, title?: string) {
     const additions = platforms.map((platform, index) => ({
       id: Date.now() + index,
-      content: "A creator's guide to consistent content",
+      content: title || "Creator Studio Draft",
       platform: platform as Job["platform"],
       schedule,
       status: "pending" as Status,
       attempts: 0,
     }));
-    setJobs((current) => [...additions, ...current]);
+    setJobs((current) => {
+      const next = [...additions, ...current];
+      try {
+        window.localStorage.setItem(JOBS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore
+      }
+      return next;
+    });
   }
 
   function updateJob(id: number, status: Status) {
-    setJobs((current) =>
-      current.map((job) =>
+    setJobs((current) => {
+      const next = current.map((job) =>
         job.id === id ? { ...job, status, attempts: job.attempts + 1 } : job
-      )
-    );
+      );
+      try {
+        window.localStorage.setItem(JOBS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore
+      }
+      return next;
+    });
   }
 
   const applyServerUser = useCallback((u: Record<string, unknown>) => {
     setCurrentUser((prev) => {
-      const name =
-        typeof u.name === "string" && u.name.trim() ? u.name.trim() : prev.name;
       const email =
         typeof u.email === "string" && u.email.trim()
           ? u.email.trim()
           : prev.email;
+      const name = normalizeDisplayName(
+        typeof u.name === "string" ? u.name : prev.name,
+        email
+      );
       const roles = Array.isArray(u.roles)
         ? (u.roles as string[])
         : prev.roles;
@@ -225,6 +245,14 @@ export function StateProvider({ children }: { children: ReactNode }) {
         tier,
         roles,
         initials: computeInitials(name, email),
+        twoFactorEnabled:
+          typeof u.twoFactorEnabled === "boolean"
+            ? u.twoFactorEnabled
+            : prev.twoFactorEnabled,
+        maskedKeys:
+          u.maskedKeys && typeof u.maskedKeys === "object"
+            ? (u.maskedKeys as Record<string, string>)
+            : prev.maskedKeys || {},
         usage:
           u.usage && typeof u.usage === "object"
             ? {
@@ -288,8 +316,8 @@ export function StateProvider({ children }: { children: ReactNode }) {
   const updateCurrentUser = useCallback(
     (partial: Partial<CurrentUserProfile>) => {
       setCurrentUser((prev) => {
-        const name = partial.name ?? prev.name;
         const email = partial.email ?? prev.email;
+        const name = normalizeDisplayName(partial.name ?? prev.name, email);
         const next: CurrentUserProfile = {
           ...prev,
           ...partial,
@@ -345,6 +373,7 @@ export function StateProvider({ children }: { children: ReactNode }) {
     }
     try {
       window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(JOBS_STORAGE_KEY);
     } catch {
       // Ignore
     }
@@ -356,11 +385,24 @@ export function StateProvider({ children }: { children: ReactNode }) {
       if (raw) {
         const parsed = JSON.parse(raw) as CurrentUserProfile;
         if (parsed && parsed.email) {
+          const normalizedName = normalizeDisplayName(
+            parsed.name,
+            parsed.email
+          );
           setCurrentUser({
             ...DEFAULT_USER_PROFILE,
             ...parsed,
-            initials: computeInitials(parsed.name, parsed.email),
+            name: normalizedName,
+            initials: computeInitials(normalizedName, parsed.email),
+            maskedKeys: parsed.maskedKeys || {},
           });
+        }
+      }
+      const rawJobs = window.localStorage.getItem(JOBS_STORAGE_KEY);
+      if (rawJobs) {
+        const parsedJobs = JSON.parse(rawJobs) as Job[];
+        if (Array.isArray(parsedJobs)) {
+          setJobs(parsedJobs);
         }
       }
     } catch {

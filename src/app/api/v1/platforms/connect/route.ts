@@ -46,6 +46,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       platform,
       state,
+      codeChallenge: pkce.codeChallenge,
       codeChallengeMethod: "S256",
       authorizationUrl: oauthInfo.authorizationUrl,
       externalOAuth: oauthInfo.externalOAuth,

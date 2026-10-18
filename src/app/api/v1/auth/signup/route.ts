@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   createSessionCookieHeader,
   evaluatePasswordStrength,
+  formatCreatorDisplayName,
   hashPassword,
   isSuperuserEmail,
   signSessionToken,
@@ -14,16 +15,7 @@ export async function POST(request: Request) {
     const email =
       typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     const password = typeof body?.password === "string" ? body.password : "";
-    const fallbackName = email
-      ? email
-          .split("@")[0]
-          .replace(/[._-]+/g, " ")
-          .replace(/\b\w/g, (c: string) => c.toUpperCase())
-      : "Creator";
-    const name =
-      typeof body?.name === "string" && body.name.trim()
-        ? body.name.trim()
-        : fallbackName;
+    const name = formatCreatorDisplayName(body?.name, email);
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json(

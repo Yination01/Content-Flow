@@ -28,6 +28,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 function renderWithState(ui: React.ReactElement) {
+  window.localStorage.clear();
   return render(<StateProvider>{ui}</StateProvider>);
 }
 
@@ -146,11 +147,14 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     u2();
 
     const { unmount: u3 } = renderWithState(<SettingsScreen initialSection="AI providers" />);
-    expect(screen.getByDisplayValue(/sk-p•••••••••••••9K2/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/No API key configured/i)).toBeInTheDocument();
     u3();
 
     renderWithState(<AdminScreen />);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("link", { name: /Back to Dashboard/i }).length
+    ).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /Quotas/i }));
     expect(
       screen.getByRole("heading", { name: "Cloudflare Workers AI" })
@@ -193,4 +197,80 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
       screen.getByRole("dialog", { name: /Workspace notifications/i })
     ).toBeInTheDocument();
   });
+
+  it("verifies Phase 13 complete demo-data purge, interactive OAuth/2FA/BYOK modals, Superuser billing, and extensive Admin Control Center", () => {
+    // 1. AuthScreen interactive Google OAuth & Magic Link modals
+    const { unmount: uAuth } = renderWithState(<AuthScreen />);
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Google/i }));
+    expect(
+      screen.getByRole("dialog", { name: /Google OAuth 2\.0 PKCE Sign-In/i })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Email Magic Link/i }));
+    expect(
+      screen.getByRole("dialog", {
+        name: /Passwordless Magic Link & 6-Digit OTP/i,
+      })
+    ).toBeInTheDocument();
+    uAuth();
+
+    // 2. DashboardScreen + PlatformVerificationModal + zero demo jobs
+    const { unmount: uDash } = renderWithState(
+      <WorkspaceShell>
+        <DashboardScreen />
+      </WorkspaceShell>
+    );
+    expect(screen.getByText(/No scheduled jobs yet/i)).toBeInTheDocument();
+    const connectBtns = screen.getAllByRole("button", { name: /^Connect$/i });
+    fireEvent.click(connectBtns[0]);
+    expect(
+      screen.getByRole("dialog", {
+        name: /Verify & Connect YouTube \(OAuth 2\.0 PKCE\)/i,
+      })
+    ).toBeInTheDocument();
+    uDash();
+
+    // 3. SettingsScreen: Billing 0% progress + Superuser permanent unlock & Security 2FA
+    const { unmount: uBilling } = renderWithState(
+      <SettingsScreen initialSection="Billing" />
+    );
+    expect(screen.getByText(/Max Tier Unlocked \(\$0\)/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Upgrade to Pro/i })
+    ).not.toBeInTheDocument();
+    uBilling();
+
+    const { unmount: uSec } = renderWithState(
+      <SettingsScreen initialSection="Security" />
+    );
+    expect(
+      screen.getByRole("button", { name: /Set up 2FA/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Send security code/i })
+    ).toBeInTheDocument();
+    uSec();
+
+    // 4. AdminScreen: zero fake 12,482 count, clear Back to Dashboard, and 5 control tabs
+    const { container: adminContainer, unmount: uAdmin } = renderWithState(
+      <AdminScreen />
+    );
+    expect(adminContainer.textContent || "").not.toMatch(/12,482/);
+    expect(adminContainer.textContent || "").not.toMatch(/Jon Bell/);
+    expect(adminContainer.textContent || "").not.toMatch(/Priya Shah/);
+    expect(
+      screen.getAllByRole("link", { name: /Back to Dashboard/i }).length
+    ).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole("button", { name: /Users/i }));
+    expect(
+      screen.getByText(/Showing 1 of 1 registered user\(s\)/i)
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Audit & System/i }));
+    expect(
+      screen.getByText(/Production Infrastructure & Security Matrix/i)
+    ).toBeInTheDocument();
+    uAdmin();
+  });
 });
+

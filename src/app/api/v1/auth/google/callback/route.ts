@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createSessionCookieHeader,
+  formatCreatorDisplayName,
   hashPassword,
   isSuperuserEmail,
   signSessionToken,
@@ -20,13 +21,10 @@ export async function GET(request: Request) {
   )
     .trim()
     .toLowerCase();
-  const name =
-    verified?.name ||
-    url.searchParams.get("name")?.trim() ||
+  const name = formatCreatorDisplayName(
+    verified?.name || url.searchParams.get("name")?.trim(),
     email
-      .split("@")[0]
-      .replace(/[._-]+/g, " ")
-      .replace(/\b\w/g, (c: string) => c.toUpperCase());
+  );
 
   const store = getApiStore();
   let user = Array.from(store.users.values()).find(

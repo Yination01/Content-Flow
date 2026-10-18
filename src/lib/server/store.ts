@@ -11,6 +11,7 @@ import {
   type UsageSnapshot,
 } from "@/lib/policy";
 import {
+  formatCreatorDisplayName,
   hashPassword,
   isSuperuserEmail,
   parseSessionCookieFromRequest,
@@ -99,11 +100,17 @@ export interface UserAccountRecord {
   joinedAt: string;
   usage: UsageSnapshot;
   encryptedByok: Record<string, EncryptedKeyEnvelope>;
+  twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  twoFactorBackupCodes?: string[];
   connectedPlatforms: Record<
     string,
     {
       connected: boolean;
       handle: string;
+      channelTitle?: string;
+      scopes?: string[];
+      verifiedAt?: string;
       expiresAt: string;
       encryptedTokenRef: string;
     }
@@ -591,14 +598,7 @@ export function extractActorFromRequest(request: Request): {
     const initialRoles: ServerRole[] = isSuper
       ? Array.from(new Set([...(session?.roles || ["creator"]), "superuser" as const]))
       : session?.roles || ["creator"];
-    const fallbackName =
-      session?.name ||
-      (email
-        ? email
-            .split("@")[0]
-            .replace(/[._-]+/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase())
-        : "Creator");
+    const fallbackName = formatCreatorDisplayName(session?.name, email);
 
     userRecord = {
       id: userId,
@@ -621,7 +621,7 @@ export function extractActorFromRequest(request: Request): {
     };
     store.users.set(userId, userRecord);
   } else if (session?.name && userRecord.id !== "user-1") {
-    userRecord.name = session.name;
+    userRecord.name = formatCreatorDisplayName(session.name, userRecord.email);
   }
 
   if (tierHeader && ["FREE", "CREATOR", "PRO", "AGENCY"].includes(tierHeader)) {

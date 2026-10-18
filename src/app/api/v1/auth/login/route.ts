@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createSessionCookieHeader,
+  formatCreatorDisplayName,
   hashPassword,
   isSuperuserEmail,
   signSessionToken,
@@ -93,13 +94,7 @@ export async function POST(request: Request) {
 
     // Serverless cold-start account recovery: create/rehydrate user for this email
     const isSuper = isSuperuserEmail(email);
-    const derivedName =
-      typeof body?.name === "string" && body.name.trim()
-        ? body.name.trim()
-        : email
-            .split("@")[0]
-            .replace(/[._-]+/g, " ")
-            .replace(/\b\w/g, (c: string) => c.toUpperCase());
+    const derivedName = formatCreatorDisplayName(body?.name, email);
     const userId = `user-${Buffer.from(email).toString("base64url").slice(0, 12)}`;
     const roles = isSuper
       ? (["creator", "superuser"] as const)

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="cf-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4338ca" />
+      <stop offset="100%" stop-color="#c2410c" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#17172a" />
+  <rect x="36" y="36" width="440" height="440" rx="88" fill="url(#cf-grad)" opacity="0.18" />
+  <path
+    d="M256 108L289 201L382 234L289 267L256 360L223 267L130 234L223 201L256 108Z"
+    fill="#ffffff"
+  />
+  <circle cx="368" cy="144" r="22" fill="#f59e0b" />
+  <circle cx="148" cy="364" r="16" fill="#a78bfa" />
+</svg>
