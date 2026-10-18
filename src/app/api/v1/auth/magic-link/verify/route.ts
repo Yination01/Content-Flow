@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   createSessionCookieHeader,
+  formatCreatorDisplayName,
   hashPassword,
   isSuperuserEmail,
   signSessionToken,
@@ -11,11 +12,12 @@ import { getApiStore, persistApiStore } from "@/lib/server/store";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token") || "";
+  const codeParam = url.searchParams.get("code")?.trim();
   const verified = verifyMagicLinkToken(token);
 
-  if (!verified) {
+  if (!verified || (codeParam && verified.otpCode && verified.otpCode !== codeParam)) {
     return NextResponse.json(
-      { error: "Invalid or expired magic link token." },
+      { error: "Invalid or expired magic link verification code." },
       { status: 401 }
     );
   }
@@ -27,12 +29,7 @@ export async function GET(request: Request) {
   );
 
   const isSuper = isSuperuserEmail(email);
-  const derivedName =
-    verified.name ||
-    email
-      .split("@")[0]
-      .replace(/[._-]+/g, " ")
-      .replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const derivedName = formatCreatorDisplayName(verified.name, email);
 
   if (!user) {
     const userId = `user-${Buffer.from(email).toString("base64url").slice(0, 12)}`;
@@ -62,7 +59,7 @@ export async function GET(request: Request) {
     persistApiStore();
   } else {
     if (verified.name && user.id !== "user-1") {
-      user.name = verified.name;
+      user.name = derivedName;
     }
     if (isSuper) {
       user.tier = "AGENCY";

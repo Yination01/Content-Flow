@@ -5,18 +5,32 @@ import { extractActorFromRequest } from "@/lib/server/store";
 export async function GET(request: Request) {
   const actor = extractActorFromRequest(request);
   const maskedKeys: Record<string, string> = {};
-  for (const [provider, env] of Object.entries(actor.userRecord.encryptedByok || {})) {
+  for (const [provider, env] of Object.entries(
+    actor.userRecord.encryptedByok || {}
+  )) {
     maskedKeys[provider] = env.maskedPreview;
   }
 
   const connectedPlatforms: Record<
     string,
-    { connected: boolean; handle: string; expiresAt: string }
+    {
+      connected: boolean;
+      handle: string;
+      channelTitle?: string;
+      scopes?: string[];
+      verifiedAt?: string;
+      expiresAt: string;
+    }
   > = {};
-  for (const [platform, info] of Object.entries(actor.userRecord.connectedPlatforms)) {
+  for (const [platform, info] of Object.entries(
+    actor.userRecord.connectedPlatforms
+  )) {
     connectedPlatforms[platform] = {
       connected: info.connected,
       handle: info.handle,
+      channelTitle: info.channelTitle,
+      scopes: info.scopes,
+      verifiedAt: info.verifiedAt,
       expiresAt: info.expiresAt,
     };
   }
@@ -29,6 +43,7 @@ export async function GET(request: Request) {
       niche: actor.userRecord.niche,
       tier: actor.userRecord.tier,
       roles: actor.roles,
+      twoFactorEnabled: Boolean(actor.userRecord.twoFactorEnabled),
       usage: actor.userRecord.usage,
       limits: TIER_LIMITS[actor.userRecord.tier],
       maskedKeys,

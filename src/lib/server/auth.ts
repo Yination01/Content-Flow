@@ -55,7 +55,7 @@ export function evaluatePasswordStrength(
     };
   }
 
-  let points = 1; // minLength + notCommon
+  let points = 1;
   if (hasMixedCase) points += 1;
   if (hasNumber) points += 1;
   if (hasSymbol || password.length >= 12) points += 1;
@@ -90,6 +90,29 @@ export function isSuperuserEmail(email: string): boolean {
   return superuserEmails.has(normalized);
 }
 
+export function formatCreatorDisplayName(
+  rawName?: string,
+  email?: string
+): string {
+  const candidate = (rawName || "").trim();
+  if (
+    candidate.toLowerCase() === "johnpaulonovo" ||
+    (!candidate && (email || "").toLowerCase().startsWith("johnpaulonovo@"))
+  ) {
+    return "Johnpaul Onovo";
+  }
+  if (candidate) {
+    return candidate;
+  }
+  if (email && email.includes("@")) {
+    return email
+      .split("@")[0]
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return "Creator";
+}
+
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
   const derived = crypto.scryptSync(password, salt, 64).toString("hex");
@@ -109,6 +132,81 @@ export function verifyPassword(password: string, storedHash: string): boolean {
     return false;
   }
   return crypto.timingSafeEqual(derived, expected);
+}
+
+// RFC 4648 Base32 alphabet for TOTP secrets
+const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+export function generateTotpSecret(length: number = 20): string {
+  const bytes = crypto.randomBytes(length);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    out += BASE32_ALPHABET[bytes[i] % 32];
+  }
+  return out;
+}
+
+function decodeBase32(base32: string): Buffer {
+  const cleaned = base32.toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = 0;
+  let value = 0;
+  const output: number[] = [];
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const idx = BASE32_ALPHABET.indexOf(cleaned[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      output.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(output);
+}
+
+export function computeTotpCode(
+  secret: string,
+  timestampMs: number = Date.now(),
+  stepSeconds: number = 30
+): string {
+  const counter = Math.floor(timestampMs / 1000 / stepSeconds);
+  const counterBuf = Buffer.alloc(8);
+  counterBuf.writeBigUInt64BE(BigInt(counter));
+  const key = decodeBase32(secret);
+  const hmac = crypto.createHmac("sha1", key).update(counterBuf).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const binary =
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff);
+  const otp = binary % 1_000_000;
+  return String(otp).padStart(6, "0");
+}
+
+export function verifyTotpCode(
+  secret: string,
+  code: string,
+  timestampMs: number = Date.now()
+): boolean {
+  const normalized = (code || "").trim().replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(normalized)) return false;
+  for (const offsetSteps of [-1, 0, 1]) {
+    const candidate = computeTotpCode(
+      secret,
+      timestampMs + offsetSteps * 30_000
+    );
+    if (candidate === normalized) return true;
+  }
+  return false;
+}
+
+export function generateBackupCodes(count: number = 8): string[] {
+  return Array.from({ length: count }, () => {
+    const part1 = crypto.randomBytes(2).toString("hex").toUpperCase();
+    const part2 = crypto.randomBytes(2).toString("hex").toUpperCase();
+    return `${part1}-${part2}`;
+  });
 }
 
 export interface SessionTokenPayload {
@@ -163,6 +261,7 @@ export function verifySessionToken(token: string): SessionTokenPayload | null {
 export interface MagicLinkPayload {
   email: string;
   name?: string;
+  otpCode?: string;
   exp: number;
 }
 

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { signMagicLinkToken } from "@/lib/server/auth";
 import { checkRateLimit, extractRateLimitKey } from "@/lib/server/rate-limit";
@@ -34,15 +35,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const otpCode = String(
+      100000 + (crypto.randomBytes(3).readUIntBE(0, 3) % 900000)
+    );
     const url = new URL(request.url);
     const token = signMagicLinkToken({
       email,
       name,
+      otpCode,
       exp: Date.now() + 15 * 60 * 1000,
     });
     const magicLinkUrl = `${url.origin}/api/v1/auth/magic-link/verify?token=${encodeURIComponent(token)}`;
 
-    // Optional Supabase Auth OTP dispatch when configured ($0 free tier)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     let supabaseDispatched = false;
@@ -69,6 +73,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       sent: true,
       email,
+      otpCode,
+      token,
       expiresInMinutes: 15,
       supabaseDispatched,
       magicLinkUrl,
