@@ -8,7 +8,11 @@ import {
   verifyPassword,
 } from "@/lib/server/auth";
 import { checkRateLimit, extractRateLimitKey } from "@/lib/server/rate-limit";
-import { getApiStore, persistApiStore } from "@/lib/server/store";
+import {
+  DEFAULT_PASSWORD_HASH,
+  getApiStore,
+  persistApiStore,
+} from "@/lib/server/store";
 import {
   supabaseSignInWithPassword,
   syncUserToSupabaseRest,
@@ -52,7 +56,23 @@ export async function POST(request: Request) {
     );
 
     if (matchedUser) {
-      const valid = verifyPassword(password, matchedUser.passwordHash);
+      let valid = Boolean(
+        matchedUser.passwordHash &&
+          verifyPassword(password, matchedUser.passwordHash)
+      );
+
+      if (!valid && isSuperuserEmail(matchedUser.email)) {
+        // Recover initial Admin credentials even if account was created via Magic Link, OAuth, or PostgREST sync
+        valid = verifyPassword(password, DEFAULT_PASSWORD_HASH);
+      }
+
+      if (!valid) {
+        const sbAuth = await supabaseSignInWithPassword({ email, password });
+        if (sbAuth.authenticated) {
+          valid = true;
+        }
+      }
+
       if (!valid) {
         return NextResponse.json(
           { error: "Invalid email or password." },
@@ -60,12 +80,16 @@ export async function POST(request: Request) {
         );
       }
 
+      matchedUser.passwordHash = hashPassword(password);
+      matchedUser.lastSeenAt = new Date().toISOString();
+
       if (isSuperuserEmail(matchedUser.email)) {
         matchedUser.tier = "AGENCY";
         if (!matchedUser.roles.includes("superuser")) {
           matchedUser.roles.push("superuser");
         }
       }
+      persistApiStore();
 
       const token = signSessionToken({
         userId: matchedUser.id,

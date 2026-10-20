@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { getUtcResetWindows, TIER_LIMITS } from "@/lib/policy";
 import { parseSessionCookieFromRequest } from "@/lib/server/auth";
-import { extractActorFromRequest } from "@/lib/server/store";
+import {
+  extractActorFromRequest,
+  isRequestSessionRevoked,
+} from "@/lib/server/store";
 
 export async function GET(request: Request) {
+  if (isRequestSessionRevoked(request)) {
+    return NextResponse.json(
+      { authenticated: false, error: "Not authenticated" },
+      { status: 401 }
+    );
+  }
+
   const session = parseSessionCookieFromRequest(request);
   const headerUserId =
     request.headers.get("x-user-id") || request.headers.get("x-demo-user-id");
@@ -47,6 +57,19 @@ export async function GET(request: Request) {
     };
   }
 
+  const nowMs = Date.now();
+  const trialEndsAt = actor.userRecord.trialEndsAt;
+  const trialActive = Boolean(
+    trialEndsAt && new Date(trialEndsAt).getTime() > nowMs
+  );
+  const daysRemaining =
+    trialActive && trialEndsAt
+      ? Math.max(
+          1,
+          Math.ceil((new Date(trialEndsAt).getTime() - nowMs) / 86_400_000)
+        )
+      : 0;
+
   return NextResponse.json({
     authenticated: true,
     user: {
@@ -57,6 +80,14 @@ export async function GET(request: Request) {
       tier: actor.userRecord.tier,
       roles: actor.roles,
       twoFactorEnabled: Boolean(actor.userRecord.twoFactorEnabled),
+      trial: {
+        active: trialActive,
+        tier: actor.userRecord.trialTier || null,
+        endsAt: trialEndsAt || null,
+        daysRemaining,
+        used: Boolean(actor.userRecord.trialUsed),
+      },
+      testTierOverride: actor.userRecord.testTierOverride || null,
       usage: actor.userRecord.usage,
       limits: TIER_LIMITS[actor.userRecord.tier],
       maskedKeys,
@@ -65,4 +96,3 @@ export async function GET(request: Request) {
     },
   });
 }
-

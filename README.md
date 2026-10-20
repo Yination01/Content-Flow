@@ -13,8 +13,8 @@
 - `/create` — AI content creation studio wired to `POST /api/v1/generate` and `POST /api/v1/content` with prompt character limits (`<= 1,000`), example chips, modality/tone/format controls, editable draft preview, and **Zero-Cost Client Video Storyboard Preview** (rendered in-browser at `$0` server compute).
 - `/content/[id]` — Draft editor (`PATCH / DELETE /api/v1/content/[id]`), YouTube/TikTok variant adaptation tabs, and cross-post scheduling controls (`POST /api/v1/cross-post`).
 - `/jobs` — Distribution queue (`GET /api/v1/jobs`) with status filtering (`all`, `pending`, `processing`, `completed`, `failed`, `cancelled`), detail drawer, pending-only cancellation (`POST /api/v1/jobs/[id]/cancel`), individual job retry (`POST /api/v1/jobs/[id]/retry`), and batch worker execution (`POST /api/v1/worker/tick`).
-- `/settings` — Profile management, BYOK (`AES-256-GCM` server-side envelope encryption), OAuth 2.0 PKCE connections, Billing (`USD` display + `NGN`/`USD` Paystack tables), and Security.
-- `/admin` — Protected superuser control center (`Overview`, `Users`, `Quotas`, `Moderation`).
+- `/settings` - Profile management, BYOK (`AES-256-GCM` server-side envelope encryption), OAuth 2.0 PKCE connections, Billing (`USD` display + `NGN`/`USD` Paystack tables, 1-click 30-day Free Trial on Creator/Pro, Promo Code redemption, and 1-click FTC cancellation), and Security (segmented 6-box OTP + passphrase generator).
+- `/admin` - Protected 6-Tab Dark-First Admin Workshop (`Control`, `Testers`, `Notices`, `Promo Codes`, `Subscriptions`, `System`) with light mode toggle, inline `Enter Admin` sign-in gate, and visible `Back to Dashboard` navigation on desktop and mobile.
 - `/privacy`, `/terms`, `/notes` — Legal, trust, and product architecture documentation routes.
 - `/manifest.webmanifest`, `/sw.js`, `/robots.txt`, `/sitemap.xml`, `/llms.txt` — Installable PWA manifest, service worker, SEO, and AI discoverability metadata.
 

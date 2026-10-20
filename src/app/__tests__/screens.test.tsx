@@ -220,7 +220,7 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     expect(
       screen.getByRole("heading", { level: 1, name: /Good morning, Johnpaul/i })
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/Agency Max · Superuser/i).length).toBeGreaterThan(
+    expect(screen.getAllByText(/Agency Max · Admin/i).length).toBeGreaterThan(
       0
     );
     expect(screen.getByText("0 / 2,000")).toBeInTheDocument();
@@ -233,20 +233,19 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
   });
 
   it("verifies Phase 13 complete demo-data purge, interactive OAuth/2FA/BYOK modals, Superuser billing, and extensive Admin Control Center", () => {
-    // 1. AuthScreen interactive Google OAuth & Magic Link modals (with zero personal email pre-filled)
+    // 1. AuthScreen direct Google OAuth & inline Magic Link card (with zero personal email pre-filled)
     const { container: authContainer, unmount: uAuth } = renderWithState(<AuthScreen />);
     expect(authContainer.textContent || "").not.toMatch(/johnpaulonovo/i);
-    fireEvent.click(screen.getByRole("button", { name: /Continue with Google/i }));
     expect(
-      screen.getByRole("dialog", { name: /Google OAuth 2\.0 PKCE Sign-In/i })
+      screen.getByRole("button", { name: /Continue with Google/i })
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /Email Magic Link/i }));
     expect(
-      screen.getByRole("dialog", {
-        name: /Passwordless Magic Link & 6-Digit OTP/i,
-      })
+      screen.getByText(/Sign in with a 1-click email link or 6-digit code/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Send Sign-In Link/i })
     ).toBeInTheDocument();
     uAuth();
 

@@ -38,6 +38,17 @@ export interface CurrentUserProfile {
   initials: string;
   twoFactorEnabled?: boolean;
   maskedKeys?: Record<string, string>;
+  trial?: {
+    active: boolean;
+    tier: "FREE" | "CREATOR" | "PRO" | "AGENCY" | null;
+    endsAt: string | null;
+    daysRemaining: number;
+    used: boolean;
+  };
+  testTierOverride?: {
+    tier: "FREE" | "CREATOR" | "PRO" | "AGENCY";
+    expiresAt: string;
+  } | null;
   usage: {
     dailyAiGenerations: number;
     monthlyPostsCreated: number;
@@ -90,8 +101,8 @@ export function formatTierBadgeLabel(
   tier: CurrentUserProfile["tier"],
   roles: string[] = []
 ): string {
-  if (roles.includes("superuser")) {
-    return "Agency Max · Superuser";
+  if (roles.includes("superuser") || roles.includes("admin")) {
+    return "Agency Max · Admin";
   }
   switch (tier) {
     case "AGENCY":
