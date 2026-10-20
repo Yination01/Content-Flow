@@ -9,6 +9,10 @@ import {
 } from "@/lib/server/auth";
 import { checkRateLimit, extractRateLimitKey } from "@/lib/server/rate-limit";
 import { getApiStore, persistApiStore } from "@/lib/server/store";
+import {
+  supabaseSignInWithPassword,
+  syncUserToSupabaseRest,
+} from "@/lib/server/supabase-sync";
 
 export async function POST(request: Request) {
   const rl = checkRateLimit(extractRateLimitKey(request, "auth-login"), 10, 60_000);
@@ -92,10 +96,16 @@ export async function POST(request: Request) {
       return response;
     }
 
-    // Serverless cold-start account recovery: create/rehydrate user for this email
+    // Serverless cold-start / multi-device account recovery: check Supabase Auth first, then rehydrate
+    const sbAuth = await supabaseSignInWithPassword({ email, password });
     const isSuper = isSuperuserEmail(email);
-    const derivedName = formatCreatorDisplayName(body?.name, email);
-    const userId = `user-${Buffer.from(email).toString("base64url").slice(0, 12)}`;
+    const derivedName = formatCreatorDisplayName(
+      sbAuth.user?.name || body?.name,
+      email
+    );
+    const userId =
+      sbAuth.user?.id ||
+      `user-${Buffer.from(email).toString("base64url").slice(0, 12)}`;
     const roles = isSuper
       ? (["creator", "superuser"] as const)
       : (["creator"] as const);
@@ -105,7 +115,7 @@ export async function POST(request: Request) {
       id: userId,
       name: derivedName,
       email,
-      niche: "Multi-channel content creation",
+      niche: sbAuth.user?.niche || "Multi-channel content creation",
       passwordHash: hashPassword(password),
       tier,
       roles: [...roles],
@@ -122,6 +132,16 @@ export async function POST(request: Request) {
     };
     store.users.set(userId, recoveredUser);
     persistApiStore();
+    void syncUserToSupabaseRest({
+      id: recoveredUser.id,
+      email: recoveredUser.email,
+      name: recoveredUser.name,
+      niche: recoveredUser.niche,
+      tier: recoveredUser.tier,
+      roles: recoveredUser.roles,
+      status: recoveredUser.status,
+      joinedAt: recoveredUser.joinedAt,
+    });
 
     const token = signSessionToken({
       userId: recoveredUser.id,

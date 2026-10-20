@@ -8,6 +8,7 @@ import {
   verifyMagicLinkToken,
 } from "@/lib/server/auth";
 import { getApiStore, persistApiStore } from "@/lib/server/store";
+import { syncUserToSupabaseRest } from "@/lib/server/supabase-sync";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -76,6 +77,17 @@ export async function GET(request: Request) {
       }
     }
   }
+
+  await syncUserToSupabaseRest({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    niche: user.niche,
+    tier: user.tier,
+    roles: user.roles,
+    status: user.status,
+    joinedAt: user.joinedAt,
+  });
 
   const sessionToken = signSessionToken({
     userId: user.id,
@@ -193,6 +205,17 @@ export async function POST(request: Request) {
         }
       }
     }
+
+    await syncUserToSupabaseRest({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      niche: user.niche,
+      tier: user.tier,
+      roles: user.roles,
+      status: user.status,
+      joinedAt: user.joinedAt,
+    });
 
     const sessionToken = signSessionToken({
       userId: user.id,

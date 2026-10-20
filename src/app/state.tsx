@@ -133,6 +133,27 @@ const DEFAULT_USER_PROFILE: CurrentUserProfile = {
 
 const STORAGE_KEY = "cf_user_profile_v1";
 const JOBS_STORAGE_KEY = "cf_user_jobs_v1";
+export const STORAGE_VERSION_KEY = "cf_storage_schema_version";
+export const STORAGE_SCHEMA_VERSION = "v2_multi_user_clean";
+
+export function migrateLegacyClientStorage(storage: {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+}): boolean {
+  try {
+    const currentVersion = storage.getItem(STORAGE_VERSION_KEY);
+    if (currentVersion !== STORAGE_SCHEMA_VERSION) {
+      storage.removeItem(STORAGE_KEY);
+      storage.removeItem(JOBS_STORAGE_KEY);
+      storage.setItem(STORAGE_VERSION_KEY, STORAGE_SCHEMA_VERSION);
+      return true;
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return false;
+}
 
 type AppState = {
   hasContent: boolean;
@@ -425,6 +446,9 @@ export function StateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
+      if (process.env.NODE_ENV !== "test") {
+        migrateLegacyClientStorage(window.localStorage);
+      }
       if (window.sessionStorage.getItem("cf_logged_out") === "1") {
         setIsLoggedOut(true);
         return;
