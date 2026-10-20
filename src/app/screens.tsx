@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -304,6 +305,7 @@ function ProductPreview() {
 
 export function LandingScreen() {
   const [faq, setFaq] = useState(0);
+  const { theme, toggleTheme } = useAppState();
   const jsonLd = {
     "@context": "https://schema.org",
     "@graph": [
@@ -349,6 +351,15 @@ export function LandingScreen() {
           <a href="#faq">FAQ</a>
         </div>
         <div className="marketing-nav__actions">
+          <button
+            type="button"
+            className="button button--secondary"
+            aria-label="Toggle theme"
+            onClick={toggleTheme}
+            style={{ minHeight: "38px", padding: "0 11px", fontSize: "0.75rem" }}
+          >
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
           <Link className="button button--ghost" href="/dashboard">
             Dashboard
           </Link>
@@ -1280,7 +1291,8 @@ const appNavigation = [
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, logoutUser, isLoggedOut } = useAppState();
+  const { currentUser, logoutUser, isLoggedOut, theme, toggleTheme } =
+    useAppState();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -1288,9 +1300,40 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [feedbackText, setFeedbackText] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
   const [shellToast, setShellToast] = useState("");
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
   const [liveNotices, setLiveNotices] = useState<
     Array<{ id: string; title: string; body: string; audience: string; createdAt: string }>
   >([]);
+
+  useEffect(() => {
+    setNotificationsOpen(false);
+    setMobileOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const handleOutside = (event: MouseEvent | TouchEvent) => {
+      if (
+        notificationsRef.current &&
+        !notificationsRef.current.contains(event.target as Node)
+      ) {
+        setNotificationsOpen(false);
+      }
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNotificationsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [notificationsOpen]);
 
   useEffect(() => {
     let active = true;
@@ -1614,13 +1657,145 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           <div className="topbar__actions">
             <button
               type="button"
-              className="icon-button"
-              aria-label="Notifications"
-              onClick={() => setNotificationsOpen((prev) => !prev)}
+              className="button button--secondary"
+              aria-label="Toggle theme"
+              onClick={toggleTheme}
+              style={{
+                minHeight: "36px",
+                padding: "0 11px",
+                fontSize: "0.75rem",
+              }}
             >
-              <Bell size={19} aria-hidden="true" />
-              {unreadCount > 0 && <i />}
+              {theme === "dark" ? "Light mode" : "Dark mode"}
             </button>
+            <div ref={notificationsRef} style={{ position: "relative" }}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Notifications"
+                aria-expanded={notificationsOpen}
+                onClick={() => setNotificationsOpen((prev) => !prev)}
+              >
+                <Bell size={19} aria-hidden="true" />
+                {unreadCount > 0 && <i />}
+              </button>
+              {notificationsOpen && (
+                <div
+                  className="notifications-popover"
+                  role="dialog"
+                  aria-label="Workspace notifications"
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      marginBottom: "0.6rem",
+                    }}
+                  >
+                    <strong>Notifications ({unreadCount})</strong>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => {
+                          setUnreadCount(0);
+                          setNotificationsOpen(false);
+                          setShellToast("All notifications marked as read");
+                        }}
+                      >
+                        Mark all read
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="Close notifications"
+                        onClick={() => setNotificationsOpen(false)}
+                        style={{ width: "30px", height: "30px" }}
+                      >
+                        <X size={16} aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "0.5rem",
+                      fontSize: "0.83rem",
+                    }}
+                  >
+                    {liveNotices.map((notice) => (
+                      <div
+                        key={notice.id}
+                        onClick={() => setNotificationsOpen(false)}
+                        style={{
+                          padding: "0.5rem",
+                          borderRadius: "8px",
+                          background: "var(--primary-soft)",
+                          border: "1px solid var(--line)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <strong>{notice.title}</strong>
+                        <p
+                          style={{
+                            margin: "0.15rem 0 0",
+                            color: "var(--muted)",
+                          }}
+                        >
+                          {notice.body}
+                        </p>
+                      </div>
+                    ))}
+                    <div
+                      onClick={() => setNotificationsOpen(false)}
+                      style={{
+                        padding: "0.5rem",
+                        borderRadius: "8px",
+                        background: "var(--surface-soft)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <strong>{tierLabel} active</strong>
+                      <p
+                        style={{
+                          margin: "0.15rem 0 0",
+                          color: "var(--muted)",
+                        }}
+                      >
+                        Signed in as {currentUser.name} ({currentUser.email}).
+                      </p>
+                    </div>
+                    <div
+                      onClick={() => setNotificationsOpen(false)}
+                      style={{
+                        padding: "0.5rem",
+                        borderRadius: "8px",
+                        background: "var(--surface-soft)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <strong>$0 Free-Tier Guardrails Armed</strong>
+                      <p
+                        style={{
+                          margin: "0.15rem 0 0",
+                          color: "var(--muted)",
+                        }}
+                      >
+                        Daily UTC quota reset and SHA-256 AI prompt cache active.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="avatar"
@@ -1631,74 +1806,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               {currentUser.initials}
             </button>
           </div>
-          {notificationsOpen && (
-            <div
-              className="card"
-              role="dialog"
-              aria-label="Workspace notifications"
-              style={{
-                position: "absolute",
-                top: "3.75rem",
-                right: "1.25rem",
-                width: "320px",
-                zIndex: 40,
-                padding: "0.9rem",
-                boxShadow: "0 12px 32px rgba(0,0,0,0.12)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "0.6rem",
-                }}
-              >
-                <strong>Notifications ({unreadCount})</strong>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => {
-                    setUnreadCount(0);
-                    setNotificationsOpen(false);
-                    setShellToast("All notifications marked as read");
-                  }}
-                >
-                  Mark all read
-                </button>
-              </div>
-              <div style={{ display: "grid", gap: "0.5rem", fontSize: "0.83rem" }}>
-                {liveNotices.map((notice) => (
-                  <div
-                    key={notice.id}
-                    style={{
-                      padding: "0.45rem",
-                      borderRadius: "8px",
-                      background: "rgba(99, 102, 241, 0.08)",
-                      border: "1px solid rgba(99, 102, 241, 0.25)",
-                    }}
-                  >
-                    <strong>{notice.title}</strong>
-                    <p style={{ margin: "0.15rem 0 0", color: "#57534e" }}>
-                      {notice.body}
-                    </p>
-                  </div>
-                ))}
-                <div style={{ padding: "0.45rem", borderRadius: "8px", background: "rgba(28,25,23,0.04)" }}>
-                  <strong>{tierLabel} active</strong>
-                  <p style={{ margin: "0.15rem 0 0", color: "#57534e" }}>
-                    Signed in as {currentUser.name} ({currentUser.email}).
-                  </p>
-                </div>
-                <div style={{ padding: "0.45rem", borderRadius: "8px", background: "rgba(28,25,23,0.04)" }}>
-                  <strong>$0 Free-Tier Guardrails Armed</strong>
-                  <p style={{ margin: "0.15rem 0 0", color: "#57534e" }}>
-                    Daily UTC quota reset and SHA-256 AI prompt cache active.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </header>
         <main className="app-main">{children}</main>
         <nav
@@ -1900,7 +2007,9 @@ function PlatformVerificationModal({
   const [accessToken, setAccessToken] = useState("");
   const [pkceState, setPkceState] = useState("");
   const [pkceChallenge, setPkceChallenge] = useState("");
+  const [authorizationUrl, setAuthorizationUrl] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
 
   useEffect(() => {
     setHandle(existingConnection?.handle || safeDefaultHandle);
@@ -1908,6 +2017,7 @@ function PlatformVerificationModal({
       existingConnection?.channelTitle ||
         `${safeDefaultHandle.replace("@", "")} Studio`
     );
+    setVerifyError("");
     if (open && !connected) {
       void (async () => {
         try {
@@ -1918,22 +2028,68 @@ function PlatformVerificationModal({
           });
           if (res.ok) {
             const data = await res.json();
-            setPkceState(data.state || "");
-            setPkceChallenge(data.codeChallenge || "");
+            setPkceState(data.state || data?.data?.state || "");
+            setPkceChallenge(
+              data.codeChallenge || data?.data?.codeChallengeMethod || "S256"
+            );
+            setAuthorizationUrl(
+              data.authorizationUrl || data?.data?.authorizationUrl || ""
+            );
           }
         } catch {
           // Offline fallback
         }
       })();
     }
-  }, [open, connected, platform, existingConnection, defaultHandle]);
+  }, [open, connected, platform, existingConnection, safeDefaultHandle]);
+
+  async function startOAuthRedirect() {
+    setVerifying(true);
+    setVerifyError("");
+    try {
+      let targetUrl = authorizationUrl;
+      if (!targetUrl) {
+        const res = await fetch("/api/v1/platforms/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          targetUrl =
+            data.authorizationUrl || data?.data?.authorizationUrl || "";
+        }
+      }
+      if (targetUrl) {
+        const cleanHandle = (handle.trim() || safeDefaultHandle).startsWith("@")
+          ? handle.trim() || safeDefaultHandle
+          : `@${handle.trim() || safeDefaultHandle}`;
+        if (targetUrl.startsWith("/api/v1/platforms/callback")) {
+          const sep = targetUrl.includes("?") ? "&" : "?";
+          window.location.assign(
+            `${targetUrl}${sep}redirect=1&handle=${encodeURIComponent(cleanHandle)}`
+          );
+          return;
+        }
+        window.location.assign(targetUrl);
+        return;
+      }
+    } catch {
+      // Fall through to direct verify
+    }
+    await verifyAndConnect();
+  }
 
   async function verifyAndConnect() {
     setVerifying(true);
+    setVerifyError("");
     const scopes =
       platform === "youtube"
         ? ["youtube.upload", "youtube.readonly"]
         : ["video.upload", "video.publish"];
+    const targetHandle = (handle.trim() || safeDefaultHandle).startsWith("@")
+      ? handle.trim() || safeDefaultHandle
+      : `@${handle.trim() || safeDefaultHandle}`;
     try {
       const res = await fetch("/api/v1/platforms/verify", {
         method: "POST",
@@ -1941,30 +2097,45 @@ function PlatformVerificationModal({
         body: JSON.stringify({
           platform,
           state: pkceState,
-          handle: handle.trim() || defaultHandle,
+          handleOrUrl: targetHandle,
+          handle: targetHandle,
           channelTitle: channelTitle.trim(),
           accessToken: accessToken.trim() || undefined,
           scopes,
         }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
-        if (data?.connection) {
-          onVerified(data.connection);
+        const verified = data?.data || data?.connection;
+        if (verified) {
+          onVerified({
+            connected: true,
+            handle: verified.handle || targetHandle,
+            channelTitle:
+              verified.channelTitle ||
+              channelTitle.trim() ||
+              `${targetHandle} (${label})`,
+            scopes: Array.isArray(verified.scopes) ? verified.scopes : scopes,
+            verifiedAt: verified.verifiedAt || new Date().toISOString(),
+            expiresAt:
+              verified.expiresAt ||
+              new Date(Date.now() + 28 * 24 * 3600 * 1000).toISOString(),
+          });
           setVerifying(false);
           return;
         }
+      } else if (data?.error?.message) {
+        setVerifyError(data.error.message);
+        setVerifying(false);
+        return;
       }
     } catch {
       // Fallback
     }
-    const cleanHandle = (handle.trim() || defaultHandle).startsWith("@")
-      ? handle.trim() || defaultHandle
-      : `@${handle.trim()}`;
     onVerified({
       connected: true,
-      handle: cleanHandle,
-      channelTitle: channelTitle.trim() || `${cleanHandle} Channel`,
+      handle: targetHandle,
+      channelTitle: channelTitle.trim() || `${targetHandle} (${label})`,
       scopes,
       verifiedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 28 * 24 * 3600 * 1000).toISOString(),
@@ -1974,11 +2145,12 @@ function PlatformVerificationModal({
 
   async function disconnectChannel() {
     try {
-      await fetch("/api/v1/platforms/connect", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform }),
-      });
+      await fetch(
+        `/api/v1/platforms/connect?platform=${encodeURIComponent(platform)}`,
+        {
+          method: "DELETE",
+        }
+      );
     } catch {
       // Fallback
     }
@@ -2009,6 +2181,22 @@ function PlatformVerificationModal({
       onConfirm={verifyAndConnect}
     >
       <div style={{ display: "grid", gap: "0.75rem" }}>
+        {!connected && (
+          <Button
+            type="button"
+            variant="primary"
+            onClick={startOAuthRedirect}
+            disabled={verifying}
+          >
+            Continue with {label} OAuth 2.0 Redirect
+          </Button>
+        )}
+        {verifyError && (
+          <div className="form-alert" role="alert">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span>{verifyError}</span>
+          </div>
+        )}
         <Field
           label={`${label} Channel Handle`}
           value={handle}
@@ -2034,7 +2222,7 @@ function PlatformVerificationModal({
           style={{
             padding: "0.65rem 0.8rem",
             borderRadius: "10px",
-            background: "rgba(28, 25, 23, 0.04)",
+            background: "var(--surface-soft)",
             fontSize: "0.8rem",
             display: "grid",
             gap: "0.25rem",
@@ -2752,25 +2940,30 @@ export function CreateScreen() {
           )}
         </Card>
       </div>
-      <Card className="quota-callout">
-        <div>
-          <AlertTriangle size={20} aria-hidden="true" />
-          <div>
-            <strong>Quota limit &amp; provider routing policy</strong>
-            <p>
-              Daily quotas reset at 00:00 UTC. ContentFlow routes across BYOK
-              (Plan A), Cloudflare Workers AI (Plan B), and Hugging Face (Plan
-              C).
-            </p>
-          </div>
-        </div>
-        <Link
-          className="button button--secondary"
-          href="/settings?section=Billing"
-        >
-          View billing
-        </Link>
-      </Card>
+      {!currentUser.roles.includes(ADMIN_ROLE_KEY) &&
+        currentUser.tier !== "AGENCY" &&
+        currentUser.usage.dailyAiGenerations >=
+          Math.ceil(currentUser.limits.dailyAiGenerations * 0.8) && (
+          <Card className="quota-callout">
+            <div>
+              <AlertTriangle size={20} aria-hidden="true" />
+              <div>
+                <strong>Approaching daily AI generation limit</strong>
+                <p>
+                  You have used {currentUser.usage.dailyAiGenerations} of{" "}
+                  {currentUser.limits.dailyAiGenerations} daily generations
+                  (resets at 00:00 UTC).
+                </p>
+              </div>
+            </div>
+            <Link
+              className="button button--secondary"
+              href="/settings?section=Billing"
+            >
+              View billing
+            </Link>
+          </Card>
+        )}
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
     </>
   );
@@ -3593,7 +3786,8 @@ export function SettingsScreen({
   initialSection?: string;
 }) {
   const router = useRouter();
-  const { currentUser, updateCurrentUser, logoutUser } = useAppState();
+  const { currentUser, updateCurrentUser, refreshUser, logoutUser } =
+    useAppState();
   const [section, setSection] = useState(
     settingsSections.includes(
       initialSection as (typeof settingsSections)[number]
@@ -3661,6 +3855,62 @@ export function SettingsScreen({
     setMaskedKeysMap(currentUser.maskedKeys || {});
     setTwoFactorEnabled(Boolean(currentUser.twoFactorEnabled));
   }, [currentUser]);
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qSection = params.get("section");
+      if (
+        qSection &&
+        settingsSections.includes(
+          qSection as (typeof settingsSections)[number]
+        )
+      ) {
+        setSection(qSection);
+      }
+      const connectedPlatform = params.get("connected");
+      const connectedHandle = params.get("handle") || "@creator";
+      if (connectedPlatform === "youtube" || connectedPlatform === "tiktok") {
+        setSection("Platform connections");
+        const entry = {
+          connected: true,
+          handle: connectedHandle.startsWith("@")
+            ? connectedHandle
+            : `@${connectedHandle}`,
+          channelTitle: `${connectedHandle.replace(/^@/, "")} (${
+            connectedPlatform === "youtube" ? "YouTube" : "TikTok"
+          })`,
+          scopes:
+            connectedPlatform === "youtube"
+              ? ["youtube.upload", "youtube.readonly"]
+              : ["video.upload", "video.publish"],
+          verifiedAt: new Date().toISOString(),
+          expiresAt: new Date(
+            Date.now() + 28 * 24 * 3600 * 1000
+          ).toISOString(),
+        };
+        if (connectedPlatform === "youtube") setYtConnected(true);
+        if (connectedPlatform === "tiktok") setTtConnected(true);
+        updateCurrentUser({
+          connectedPlatforms: {
+            ...currentUser.connectedPlatforms,
+            [connectedPlatform]: entry,
+          },
+        });
+        void refreshUser();
+        setToast(
+          `${connectedPlatform === "youtube" ? "YouTube" : "TikTok"} (${entry.handle}) connected via OAuth 2.0 PKCE`
+        );
+        window.history.replaceState(
+          {},
+          "",
+          "/settings?section=Platform%20connections"
+        );
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+  }, [refreshUser, updateCurrentUser]);
 
   async function saveProfile() {
     try {
@@ -4471,8 +4721,8 @@ export function SettingsScreen({
                 style={{
                   padding: "1rem",
                   borderRadius: "12px",
-                  border: "1px solid #e7e2da",
-                  background: "#faf7f2",
+                  border: "1px solid var(--line)",
+                  background: "var(--surface-soft)",
                   display: "grid",
                   gap: "0.75rem",
                 }}
@@ -4482,7 +4732,7 @@ export function SettingsScreen({
                     Verified Password Change (Magic Link / 6-Digit Security
                     Code)
                   </strong>
-                  <p style={{ fontSize: "0.86rem", color: "#57534e" }}>
+                  <p style={{ fontSize: "0.86rem", color: "var(--muted)" }}>
                     Request a signed 6-digit security verification code before
                     rotating your account password.
                   </p>
@@ -4513,12 +4763,12 @@ export function SettingsScreen({
                   }}
                 >
                   {newPassword.length > 0 ? (
-                    <small style={{ color: "#57534e" }}>
+                    <small style={{ color: "var(--muted)" }}>
                       Strength: <strong>{pwdStrength.label}</strong> (
                       {pwdStrength.percent}%)
                     </small>
                   ) : (
-                    <small style={{ color: "#57534e" }}>
+                    <small style={{ color: "var(--muted)" }}>
                       Use 12+ characters with mixed case, number, and symbol.
                     </small>
                   )}
@@ -4532,7 +4782,7 @@ export function SettingsScreen({
                     style={{
                       background: "transparent",
                       border: "none",
-                      color: "var(--accent)",
+                      color: "var(--primary)",
                       fontWeight: 700,
                       fontSize: "0.78rem",
                       cursor: "pointer",
@@ -4542,35 +4792,22 @@ export function SettingsScreen({
                     Suggest strong passphrase
                   </button>
                 </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    gap: "0.65rem",
-                    alignItems: "end",
-                  }}
-                >
-                  <Field
-                    label="6-digit security verification code"
-                    placeholder="Enter 6-digit code from email"
-                    value={resetOtpCode}
-                    onChange={(e) => setResetOtpCode(e.target.value)}
-                    hint={
-                      issuedResetCode
-                        ? `Verification code & reset link sent to ${currentUser.email}. Check your inbox.`
-                        : "Click 'Send security code' to send a signed verification code to your email."
-                    }
-                  />
+                <div className="responsive-inline-action">
+                  <small style={{ color: "var(--muted)" }}>
+                    {issuedResetCode
+                      ? `Verification code & reset link sent to ${currentUser.email}. Check your inbox.`
+                      : "Click 'Send security code' to send a signed verification code to your email."}
+                  </small>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
                     onClick={requestPasswordSecurityCode}
                   >
                     Send security code
                   </Button>
                 </div>
                 <SegmentedOtpInput
-                  label="Segmented 6-digit code entry"
+                  label="6-digit security verification code"
                   value={resetOtpCode}
                   onChange={setResetOtpCode}
                 />
@@ -4638,8 +4875,8 @@ export function SettingsScreen({
                     style={{
                       padding: "1rem",
                       borderRadius: "12px",
-                      background: "#ffffff",
-                      border: "1px solid #d6d1c7",
+                      background: "var(--surface)",
+                      border: "1px solid var(--line)",
                       display: "grid",
                       gap: "0.85rem",
                     }}
@@ -4659,7 +4896,7 @@ export function SettingsScreen({
                         role="img"
                         aria-label="TOTP Authenticator QR Code"
                         style={{
-                          border: "1px solid #e7e2da",
+                          border: "1px solid var(--line)",
                           borderRadius: "10px",
                           padding: "6px",
                           background: "#fff",
@@ -4683,30 +4920,27 @@ export function SettingsScreen({
                         <rect x="40" y="68" width="16" height="8" fill="#17172a" />
                         <rect x="68" y="68" width="16" height="16" fill="#17172a" />
                       </svg>
-                      <div style={{ display: "grid", gap: "0.35rem" }}>
+                      <div style={{ display: "grid", gap: "0.35rem", minWidth: 0 }}>
                         <strong>Scan in Authenticator or copy Base32 key</strong>
                         <code
                           style={{
                             padding: "0.35rem 0.6rem",
                             borderRadius: "6px",
-                            background: "#f5f2ec",
+                            background: "var(--surface-soft)",
                             fontSize: "0.84rem",
+                            wordBreak: "break-all",
                           }}
                         >
                           {totpSetupData.secret}
                         </code>
-                        <small style={{ color: "#57534e" }}>
+                        <small style={{ color: "var(--muted)", wordBreak: "break-all" }}>
                           URI: <code>{totpSetupData.otpauthUri}</code>
                         </small>
                       </div>
                     </div>
                     <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr auto",
-                        gap: "0.65rem",
-                        alignItems: "end",
-                      }}
+                      className="responsive-inline-action"
+                      style={{ alignItems: "end" }}
                     >
                       <Field
                         label="6-digit authenticator verification code"
@@ -6017,10 +6251,8 @@ export function AdminScreen() {
                     Look up any account by email to grant stacked Creator/Pro/Agency time, permanent unlock, or suspend.
                   </p>
                   <div
+                    className="responsive-inline-action"
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      gap: "8px",
                       marginTop: "12px",
                       alignItems: "end",
                     }}
@@ -6125,10 +6357,8 @@ export function AdminScreen() {
                         </Button>
                       </div>
                       <div
+                        className="responsive-inline-action"
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto auto",
-                          gap: "8px",
                           marginTop: "10px",
                           alignItems: "end",
                         }}
@@ -6139,24 +6369,26 @@ export function AdminScreen() {
                           value={suspendReasonInput}
                           onChange={(e) => setSuspendReasonInput(e.target.value)}
                         />
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={() =>
-                            void handleSuspendToggle(lookupAccount.email, true)
-                          }
-                        >
-                          Suspend
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() =>
-                            void handleSuspendToggle(lookupAccount.email, false)
-                          }
-                        >
-                          Lift suspension
-                        </Button>
+                        <div className="button-row" style={{ flexWrap: "wrap" }}>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={() =>
+                              void handleSuspendToggle(lookupAccount.email, true)
+                            }
+                          >
+                            Suspend
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() =>
+                              void handleSuspendToggle(lookupAccount.email, false)
+                            }
+                          >
+                            Lift suspension
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}

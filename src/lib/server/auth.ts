@@ -330,3 +330,124 @@ export function parseSessionCookieFromRequest(
   const token = match.slice(SESSION_COOKIE_NAME.length + 1);
   return verifySessionToken(token);
 }
+
+export const PLATFORMS_COOKIE_NAME = "cf_platforms";
+
+export interface ConnectedPlatformCookieEntry {
+  connected: boolean;
+  handle: string;
+  channelTitle?: string;
+  scopes?: string[];
+  verifiedAt?: string;
+  expiresAt: string;
+}
+
+export type ConnectedPlatformsCookieMap = Record<
+  string,
+  ConnectedPlatformCookieEntry
+>;
+
+export function signPlatformsCookieValue(
+  platforms: ConnectedPlatformsCookieMap
+): string {
+  const encoded = Buffer.from(JSON.stringify(platforms), "utf8").toString(
+    "base64url"
+  );
+  const sig = crypto
+    .createHmac("sha256", `${getSessionSecret()}:platforms`)
+    .update(encoded)
+    .digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+export function parsePlatformsCookieFromRequest(
+  request: Request
+): ConnectedPlatformsCookieMap {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const match = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${PLATFORMS_COOKIE_NAME}=`));
+  if (!match) return {};
+  const raw = match.slice(PLATFORMS_COOKIE_NAME.length + 1);
+  if (!raw || !raw.includes(".")) return {};
+  const [encoded, sig] = raw.split(".");
+  if (!encoded || !sig) return {};
+  const expectedSig = crypto
+    .createHmac("sha256", `${getSessionSecret()}:platforms`)
+    .update(encoded)
+    .digest("base64url");
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expectedSig);
+  if (
+    sigBuf.length !== expBuf.length ||
+    !crypto.timingSafeEqual(sigBuf, expBuf)
+  ) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8")
+    ) as ConnectedPlatformsCookieMap;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function createPlatformsCookieHeader(
+  platforms: ConnectedPlatformsCookieMap,
+  maxAgeSeconds: number = 28 * 24 * 60 * 60
+): string {
+  const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  const val = signPlatformsCookieValue(platforms);
+  return `${PLATFORMS_COOKIE_NAME}=${val}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secureFlag}`;
+}
+
+export interface SignedOAuthStatePayload {
+  nonce: string;
+  userId: string;
+  platform: "youtube" | "tiktok";
+  exp: number;
+}
+
+export function signOAuthStateToken(payload: SignedOAuthStatePayload): string {
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url"
+  );
+  const sig = crypto
+    .createHmac("sha256", `${getSessionSecret()}:oauth-state`)
+    .update(encoded)
+    .digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+export function verifyOAuthStateToken(
+  token: string
+): SignedOAuthStatePayload | null {
+  if (!token || !token.includes(".")) return null;
+  const [encoded, sig] = token.split(".");
+  if (!encoded || !sig) return null;
+  const expectedSig = crypto
+    .createHmac("sha256", `${getSessionSecret()}:oauth-state`)
+    .update(encoded)
+    .digest("base64url");
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expectedSig);
+  if (
+    sigBuf.length !== expBuf.length ||
+    !crypto.timingSafeEqual(sigBuf, expBuf)
+  ) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8")
+    ) as SignedOAuthStatePayload;
+    if (!parsed.exp || parsed.exp <= Date.now()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
