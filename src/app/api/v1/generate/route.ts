@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import {
   checkUserQuota,
   decryptApiKey,
+  getAllowedPlatformsForTier,
   getScopedCacheKey,
   getUtcResetWindows,
   selectAiProvider,
+  type GatedSocialPlatform,
 } from "@/lib/policy";
-import { executeAiGeneration } from "@/lib/providers";
+import { executeAiGeneration, type ConnectedChannelContext } from "@/lib/providers";
 import {
   extractActorFromRequest,
   getApiStore,
@@ -19,16 +21,62 @@ export async function POST(request: Request) {
     const actor = extractActorFromRequest(request);
     const body = await request.json();
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+    const rawContentType =
+      typeof body?.contentType === "string" ? body.contentType : "";
     const modality = (
-      typeof body?.modality === "string" ? body.modality.toLowerCase() : "text"
+      typeof body?.modality === "string"
+        ? body.modality.toLowerCase()
+        : rawContentType
+          ? rawContentType.toLowerCase()
+          : "text"
     ) as "text" | "image" | "video";
+    const videoFormat =
+      typeof body?.videoFormat === "string" ? body.videoFormat : undefined;
+    const visualStyle =
+      typeof body?.visualStyle === "string" ? body.visualStyle : undefined;
     const format =
-      typeof body?.format === "string" ? body.format : "Short article";
+      videoFormat ||
+      (typeof body?.format === "string" ? body.format : "Short article");
     const tone =
       typeof body?.tone === "string" ? body.tone : "Clear & encouraging";
+    const allowedForTier = getAllowedPlatformsForTier(actor.tier, actor.roles);
+    const rawTargets = Array.isArray(body?.targetPlatforms)
+      ? (body.targetPlatforms as string[])
+      : Array.isArray(body?.platforms)
+        ? (body.platforms as string[])
+        : ["youtube", "tiktok"];
+    const targetPlatforms = rawTargets
+      .map((p) => String(p).toLowerCase() as GatedSocialPlatform)
+      .filter((p) => allowedForTier.includes(p));
     const platforms = Array.isArray(body?.platforms)
       ? body.platforms
-      : ["YouTube", "TikTok"];
+      : targetPlatforms.length > 0
+        ? targetPlatforms
+        : ["YouTube", "TikTok"];
+
+    // Merge actor's connected channels with any request-provided connectedChannels
+    const connectedChannels: Record<string, ConnectedChannelContext> = {};
+    for (const [k, v] of Object.entries(actor.userRecord.connectedPlatforms || {})) {
+      if (v?.connected && v.handle) {
+        connectedChannels[k] = {
+          handle: v.handle,
+          channelTitle: v.channelTitle,
+          followersCount: v.analytics?.followersCount,
+        };
+      }
+    }
+    if (body?.connectedChannels && typeof body.connectedChannels === "object") {
+      for (const [k, v] of Object.entries(
+        body.connectedChannels as Record<string, ConnectedChannelContext>
+      )) {
+        if (v && typeof v === "object") {
+          connectedChannels[k.toLowerCase()] = {
+            ...connectedChannels[k.toLowerCase()],
+            ...v,
+          };
+        }
+      }
+    }
 
     if (!prompt || prompt.length > 1000) {
       return NextResponse.json(
@@ -48,7 +96,8 @@ export async function POST(request: Request) {
       const videoCheck = checkUserQuota(
         actor.tier,
         actor.userRecord.usage,
-        "video_render"
+        "video_render",
+        { roles: actor.roles }
       );
       if (!videoCheck.allowed) {
         return NextResponse.json({ error: videoCheck.reason }, { status: 403 });
@@ -56,9 +105,10 @@ export async function POST(request: Request) {
     }
 
     const store = getApiStore();
+    const channelHashPart = JSON.stringify(connectedChannels);
     const cacheKey = getScopedCacheKey(
       actor.userId,
-      prompt,
+      `${prompt}|${channelHashPart}|${visualStyle || ""}`,
       modality,
       format,
       tone
@@ -72,7 +122,7 @@ export async function POST(request: Request) {
         actor.tier,
         actor.userRecord.usage,
         "ai_generation",
-        { isCacheHit: true }
+        { isCacheHit: true, roles: actor.roles }
       );
       persistApiStore();
       return NextResponse.json({
@@ -83,6 +133,10 @@ export async function POST(request: Request) {
         adaptations: cached.adaptations,
         remainingDailyGenerations: quotaDecision.remaining,
         resetWindows: getUtcResetWindows(),
+        data: {
+          result: cached.responseText,
+          adaptations: cached.adaptations,
+        },
       });
     }
 
@@ -90,7 +144,7 @@ export async function POST(request: Request) {
       actor.tier,
       actor.userRecord.usage,
       "ai_generation",
-      { isCacheHit: false }
+      { isCacheHit: false, roles: actor.roles }
     );
     if (!quotaDecision.allowed) {
       return NextResponse.json(
@@ -146,14 +200,17 @@ export async function POST(request: Request) {
     const genOutput = await executeAiGeneration({
       prompt,
       modality,
+      videoFormat,
+      visualStyle,
       tone,
       format,
       platforms,
+      targetPlatforms,
+      connectedChannels,
       byokKey: decryptedByok,
       byokProvider,
     });
 
-    // Increment live $0-budget platform usage counters
     if (providerChoice.plan === "B") {
       store.platformUsage.cloudflareAiNeurons += 1;
     } else if (providerChoice.plan === "C") {
@@ -195,8 +252,16 @@ export async function POST(request: Request) {
       provider: providerChoice.provider,
       result: genOutput.text,
       adaptations,
+      platformDrafts: genOutput.platformDrafts,
+      storyboardScenes: genOutput.storyboardScenes,
       remainingDailyGenerations: Math.max(0, quotaDecision.remaining - 1),
       resetWindows: getUtcResetWindows(),
+      data: {
+        result: genOutput.text,
+        adaptations,
+        platformDrafts: genOutput.platformDrafts,
+        storyboardScenes: genOutput.storyboardScenes,
+      },
     });
   } catch {
     return NextResponse.json(
