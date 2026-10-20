@@ -30,6 +30,11 @@ export interface AiGenerationOutput {
   youtubeTags: string;
   tiktokCaption: string;
   tiktokHashtags: string;
+  instagramCaption: string;
+  instagramHashtags: string;
+  xThread: string;
+  linkedinPost: string;
+  facebookPost: string;
   tokensUsed: number;
 }
 
@@ -46,17 +51,34 @@ function buildAdaptations(prompt: string, rawText: string) {
 
   return {
     title: headline || "Untitled Creator Draft",
-    youtubeTitle: `${headline} — Practical Creator Guide`.slice(0, 100),
+    youtubeTitle: `${headline} - Practical Creator Guide`.slice(0, 100),
     youtubeDescription: `${firstParagraph}\n\nTopics covered in this release:\n• Core framework for ${cleanTopic.toLowerCase()}\n• Repeatable execution checklist\n• Channel-specific takeaways`.slice(
       0,
       5000
     ),
     youtubeTags: "contentflow, creator workflow, youtube strategy, productivity",
-    tiktokCaption: `${firstParagraph.slice(0, 140)} — Save this for your next publishing session.`.slice(
+    tiktokCaption: `${firstParagraph.slice(0, 140)} - Save this for your next publishing session.`.slice(
       0,
       2200
     ),
     tiktokHashtags: "#creatorworkflow #contentstrategy #buildinpublic #consistency",
+    instagramCaption: `${headline}\n\n${firstParagraph.slice(0, 220)}\n\nSwipe or save this reel for your next studio session.`.slice(
+      0,
+      2200
+    ),
+    instagramHashtags: "#creators #reelsstrategy #contentworkflow #digitalcreator",
+    xThread: `1/ ${headline}\n\n${firstParagraph.slice(0, 180)}\n\n2/ Focus on one high-signal takeaway per post and adapt it natively for each channel.`.slice(
+      0,
+      560
+    ),
+    linkedinPost: `${headline}\n\n${firstParagraph}\n\nHow are you structuring your multi-channel publishing workflow this quarter?`.slice(
+      0,
+      3000
+    ),
+    facebookPost: `${headline}\n\n${firstParagraph}\n\nDrop a comment if you want the full checklist!`.slice(
+      0,
+      2000
+    ),
   };
 }
 
@@ -379,16 +401,22 @@ export function createR2PresignedUploadUrl(
 }
 
 export function buildSocialOAuthUrl(params: {
-  platform: "youtube" | "tiktok";
+  platform: "youtube" | "tiktok" | "instagram" | "x" | "linkedin" | "facebook";
   state: string;
   codeChallenge: string;
   origin: string;
 }) {
   const redirectUri = `${params.origin}/api/v1/platforms/callback`;
+  const ytClientId = (process.env.YOUTUBE_CLIENT_ID || "").trim();
 
-  if (params.platform === "youtube" && process.env.YOUTUBE_CLIENT_ID) {
+  if (
+    params.platform === "youtube" &&
+    ytClientId.endsWith(".apps.googleusercontent.com") &&
+    !ytClientId.includes("placeholder") &&
+    !ytClientId.includes("your-")
+  ) {
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    url.searchParams.set("client_id", process.env.YOUTUBE_CLIENT_ID);
+    url.searchParams.set("client_id", ytClientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
     url.searchParams.set(
@@ -399,6 +427,7 @@ export function buildSocialOAuthUrl(params: {
     url.searchParams.set("code_challenge", params.codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("access_type", "offline");
+    url.searchParams.set("prompt", "select_account consent");
     return {
       state: params.state,
       authorizationUrl: url.toString(),
@@ -406,9 +435,15 @@ export function buildSocialOAuthUrl(params: {
     };
   }
 
-  if (params.platform === "tiktok" && process.env.TIKTOK_CLIENT_ID) {
+  const ttClientId = (process.env.TIKTOK_CLIENT_ID || "").trim();
+  if (
+    params.platform === "tiktok" &&
+    ttClientId.length >= 16 &&
+    !ttClientId.includes("placeholder") &&
+    !ttClientId.includes("your-")
+  ) {
     const url = new URL("https://www.tiktok.com/v2/auth/authorize/");
-    url.searchParams.set("client_key", process.env.TIKTOK_CLIENT_ID);
+    url.searchParams.set("client_key", ttClientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", "user.info.basic,video.publish,video.upload");

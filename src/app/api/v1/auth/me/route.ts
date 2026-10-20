@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { getUtcResetWindows, TIER_LIMITS } from "@/lib/policy";
 import {
+  createSessionCookieHeader,
   parseSessionCookieFromRequest,
   parsePlatformsCookieFromRequest,
+  signSessionToken,
+  type PlatformChannelAnalytics,
 } from "@/lib/server/auth";
 import {
   extractActorFromRequest,
@@ -45,9 +48,11 @@ export async function GET(request: Request) {
       connected: boolean;
       handle: string;
       channelTitle?: string;
+      profileUrl?: string;
       scopes?: string[];
       verifiedAt?: string;
       expiresAt: string;
+      analytics?: PlatformChannelAnalytics;
     }
   > = { ...cookiePlatforms };
 
@@ -59,9 +64,11 @@ export async function GET(request: Request) {
         connected: info.connected,
         handle: info.handle,
         channelTitle: info.channelTitle,
+        profileUrl: info.profileUrl,
         scopes: info.scopes,
         verifiedAt: info.verifiedAt,
         expiresAt: info.expiresAt,
+        analytics: info.analytics,
       };
     }
   }
@@ -102,7 +109,7 @@ export async function GET(request: Request) {
     resetWindows: getUtcResetWindows(),
   };
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     authenticated: true,
     user: userPayload,
     data: {
@@ -110,4 +117,18 @@ export async function GET(request: Request) {
       user: userPayload,
     },
   });
+
+  if (session) {
+    const refreshedToken = signSessionToken({
+      userId: actor.userRecord.id,
+      email: actor.userRecord.email,
+      name: actor.userRecord.name,
+      tier: actor.userRecord.tier,
+      roles: actor.roles,
+      exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+    response.headers.set("set-cookie", createSessionCookieHeader(refreshedToken));
+  }
+
+  return response;
 }

@@ -61,6 +61,7 @@ export async function POST(request: Request) {
           ? body.niche.trim()
           : "Multi-channel content creation",
       passwordHash: hashPassword(password),
+      passwordSetByUser: true,
       tier: isBootstrapSuperuser ? ("AGENCY" as const) : ("FREE" as const),
       roles: [...roles],
       status: "Active" as const,

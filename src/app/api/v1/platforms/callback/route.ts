@@ -9,6 +9,7 @@ import {
   verifyOAuthStateToken,
   parsePlatformsCookieFromRequest,
   createPlatformsCookieHeader,
+  type SocialPlatformKey,
 } from "@/lib/server/auth";
 
 const consumedOAuthStates = new Set<string>();
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
   }
 
   let resolvedUserId = "";
-  let resolvedPlatform: "youtube" | "tiktok" = "youtube";
+  let resolvedPlatform: SocialPlatformKey = "youtube";
 
   if (pending) {
     if (pending.expiresAt < Date.now()) {

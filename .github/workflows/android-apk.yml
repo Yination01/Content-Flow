@@ -95,7 +95,8 @@ jobs:
                   settings.setDatabaseEnabled(true);
                   settings.setLoadWithOverviewMode(true);
                   settings.setUseWideViewPort(true);
-                  settings.setUserAgentString(settings.getUserAgentString() + " ContentFlowAndroid/1.4.0");
+                  settings.setTextZoom(90);
+                  settings.setUserAgentString(settings.getUserAgentString() + " ContentFlowAndroid/1.5.0");
 
                   CookieManager cookieManager = CookieManager.getInstance();
                   cookieManager.setAcceptCookie(true);

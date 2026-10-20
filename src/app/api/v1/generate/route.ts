@@ -168,6 +168,11 @@ export async function POST(request: Request) {
       youtubeTags: genOutput.youtubeTags,
       tiktokCaption: genOutput.tiktokCaption,
       tiktokHashtags: genOutput.tiktokHashtags,
+      instagramCaption: genOutput.instagramCaption,
+      instagramHashtags: genOutput.instagramHashtags,
+      xThread: genOutput.xThread,
+      linkedinPost: genOutput.linkedinPost,
+      facebookPost: genOutput.facebookPost,
     };
 
     store.aiCache.set(cacheKey, {

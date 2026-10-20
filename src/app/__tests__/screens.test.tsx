@@ -323,7 +323,7 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     expect(
       screen.getAllByRole("link", { name: /Back to Dashboard/i })
     ).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: /^Testers$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Users$/i }));
     expect(
       screen.getByText(/Showing 1 of 1 registered user\(s\)/i)
     ).toBeInTheDocument();
