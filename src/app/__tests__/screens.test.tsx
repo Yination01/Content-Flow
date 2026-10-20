@@ -153,9 +153,9 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     renderWithState(<AdminScreen />);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(
-      screen.getAllByRole("link", { name: /Back to Dashboard/i }).length
-    ).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: /Quotas/i }));
+      screen.getAllByRole("link", { name: /Back to Dashboard/i })
+    ).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /^System$/i }));
     expect(
       screen.getByRole("heading", { name: "Cloudflare Workers AI" })
     ).toBeInTheDocument();
@@ -313,7 +313,7 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     ).toBeInTheDocument();
     uSec();
 
-    // 4. AdminScreen: zero fake 12,482 count, clear Back to Dashboard, and 5 control tabs
+    // 4. AdminScreen: zero fake 12,482 count, clear Back to Dashboard, and single 6-tab navigation
     const { container: adminContainer, unmount: uAdmin } = renderWithState(
       <AdminScreen />
     );
@@ -321,13 +321,13 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     expect(adminContainer.textContent || "").not.toMatch(/Jon Bell/);
     expect(adminContainer.textContent || "").not.toMatch(/Priya Shah/);
     expect(
-      screen.getAllByRole("link", { name: /Back to Dashboard/i }).length
-    ).toBeGreaterThanOrEqual(2);
-    fireEvent.click(screen.getByRole("button", { name: /Users/i }));
+      screen.getAllByRole("link", { name: /Back to Dashboard/i })
+    ).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /^Testers$/i }));
     expect(
       screen.getByText(/Showing 1 of 1 registered user\(s\)/i)
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Audit & System/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^System$/i }));
     expect(
       screen.getByText(/Production Infrastructure & Security Matrix/i)
     ).toBeInTheDocument();

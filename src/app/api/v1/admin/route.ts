@@ -29,11 +29,11 @@ const SELF_ACTIONS = new Set([
   "crash_report",
 ]);
 
-function isActorAdmin(actor: ReturnType<typeof extractActorFromRequest>): boolean {
+function isActorAdmin(
+  actor: ReturnType<typeof extractActorFromRequest>
+): boolean {
   const emailLower = (actor.userRecord.email || "").trim().toLowerCase();
-  return (
-    isSuperuserEmail(emailLower) || actor.roles.includes("superuser")
-  );
+  return isSuperuserEmail(emailLower) || actor.roles.includes("superuser");
 }
 
 function serializeAccount(u: UserAccountRecord) {
@@ -48,17 +48,29 @@ function serializeAccount(u: UserAccountRecord) {
         Math.ceil((new Date(u.tierExpiresAt).getTime() - nowMs) / 86_400_000)
       )
     : null;
+  const trialActive = Boolean(
+    u.trialEndsAt && new Date(u.trialEndsAt).getTime() > nowMs
+  );
 
   return {
     uid: u.id,
     id: u.id,
+    name: u.name,
     displayName: u.name,
     email: u.email,
     username:
       u.username ||
-      (u.email ? u.email.split("@")[0].replace(/[^a-zA-Z0-9._]/g, "") : u.id),
+      (u.email
+        ? u.email.split("@")[0].replace(/[^a-zA-Z0-9._]/g, "")
+        : u.id),
     tier: u.tier,
+    status: isSuspended ? "Suspended" : u.status || "Active",
+    roles: u.roles,
     tierExpiresAt: u.tierExpiresAt || null,
+    grantExpiresAt: u.tierExpiresAt || null,
+    trialEndsAt: u.trialEndsAt || null,
+    expiresAt: u.tierExpiresAt || u.trialEndsAt || null,
+    trialActive,
     daysLeft,
     isTester: Boolean(u.isTester),
     testerGrantedBy: u.testerGrantedBy || null,
@@ -72,6 +84,8 @@ function serializeAccount(u: UserAccountRecord) {
     suspended: isSuspended,
     suspendedUntil: u.suspendedUntil || null,
     suspendReason: u.suspendReason || null,
+    suspendedReason: u.suspendReason || null,
+    testTierOverride: u.testTierOverride?.tier || null,
     hiddenFromUserList: Boolean(u.hiddenFromUserList),
   };
 }
@@ -80,10 +94,7 @@ function computePromoLiveStatus(
   promo: PromoCodeRecord
 ): "active" | "permanent" | "revoked" | "expired" {
   if (promo.status === "revoked") return "revoked";
-  if (
-    promo.expiresAt &&
-    new Date(promo.expiresAt).getTime() <= Date.now()
-  ) {
+  if (promo.expiresAt && new Date(promo.expiresAt).getTime() <= Date.now()) {
     return "expired";
   }
   if (promo.maxUses !== null && promo.currentUses >= promo.maxUses) {
@@ -108,10 +119,45 @@ function serializePromo(promo: PromoCodeRecord) {
     : `${promo.tier} for ${promo.rewardDays}d`;
   return {
     ...promo,
+    maxUses: promo.maxUses ?? 999999,
+    usedCount: promo.currentUses,
+    revoked: promo.status === "revoked" || liveStatus === "revoked",
+    note: promo.note || "",
     liveStatus,
     daysLeft,
     rewardLabel,
   };
+}
+
+function findUserByUidOrEmail(
+  store: ReturnType<typeof getApiStore>,
+  body: Record<string, unknown>
+): UserAccountRecord | undefined {
+  const uid = typeof body.uid === "string" ? body.uid.trim() : "";
+  if (uid && store.users.has(uid)) {
+    return store.users.get(uid);
+  }
+  const emailOrQuery = (
+    (typeof body.email === "string" && body.email) ||
+    (typeof body.query === "string" && body.query) ||
+    uid
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "");
+  if (!emailOrQuery) return undefined;
+  return Array.from(store.users.values()).find((u) => {
+    const uname = (
+      u.username ||
+      (u.email ? u.email.split("@")[0] : "")
+    ).toLowerCase();
+    return (
+      u.id.toLowerCase() === emailOrQuery ||
+      u.email.toLowerCase() === emailOrQuery ||
+      uname === emailOrQuery ||
+      u.name.toLowerCase() === emailOrQuery
+    );
+  });
 }
 
 export async function POST(request: Request) {
@@ -162,7 +208,11 @@ export async function POST(request: Request) {
       ok: true,
       config: store.appConfig,
       beta: {
+        enabled: Boolean(store.betaConfig?.enrolmentOpen),
         enrolmentOpen: Boolean(store.betaConfig?.enrolmentOpen),
+        maxSlots: 250,
+        enrolledCount: Array.from(store.users.values()).filter((u) => u.isBeta)
+          .length,
         betaUsersCount: Array.from(store.users.values()).filter((u) => u.isBeta)
           .length,
       },
@@ -173,6 +223,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       notices: store.notices,
+      items: store.notices,
     });
   }
 
@@ -267,7 +318,9 @@ export async function POST(request: Request) {
       actorId: actor.userId,
       actionType: "promo.redeemed",
       targetUserId: actor.userId,
-      reason: `Redeemed promo ${promo.code} for ${promo.tier} (${promo.permanent ? "Permanent" : `${promo.rewardDays}d`})`,
+      reason: `Redeemed promo ${promo.code} for ${promo.tier} (${
+        promo.permanent ? "Permanent" : `${promo.rewardDays}d`
+      })`,
       createdAt: new Date().toISOString(),
     });
     persistApiStore();
@@ -301,30 +354,31 @@ export async function POST(request: Request) {
 
   // 2. Admin-Only Actions Below
   if (action === "lookup") {
-    const query =
-      typeof body.query === "string" ? body.query.trim().toLowerCase() : "";
+    const query = (
+      (typeof body.query === "string" && body.query) ||
+      (typeof body.email === "string" && body.email) ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
     if (!query) {
       return NextResponse.json(
-        { ok: false, reason: "empty_query", error: "Enter a username, email, or user ID." },
+        {
+          ok: false,
+          reason: "empty_query",
+          error: "Enter a username, email, or user ID.",
+        },
         { status: 400 }
       );
     }
-    const cleanQuery = query.replace(/^@/, "");
-    const found = Array.from(store.users.values()).find((u) => {
-      const uname = (
-        u.username ||
-        (u.email ? u.email.split("@")[0] : "")
-      ).toLowerCase();
-      return (
-        u.id.toLowerCase() === cleanQuery ||
-        u.email.toLowerCase() === cleanQuery ||
-        uname === cleanQuery ||
-        u.name.toLowerCase() === cleanQuery
-      );
-    });
+    const found = findUserByUidOrEmail(store, { query });
     if (!found) {
       return NextResponse.json(
-        { ok: false, reason: "no_such_user", error: "No account matches that username, email, or ID." },
+        {
+          ok: false,
+          reason: "no_such_user",
+          error: "No account matches that username, email, or ID.",
+        },
         { status: 404 }
       );
     }
@@ -335,11 +389,14 @@ export async function POST(request: Request) {
   }
 
   if (action === "grant" || action === "revoke") {
-    const uid = typeof body.uid === "string" ? body.uid.trim() : "";
-    const target = store.users.get(uid);
+    const target = findUserByUidOrEmail(store, body);
     if (!target) {
       return NextResponse.json(
-        { ok: false, reason: "no_such_user", error: "Select and verify an account first." },
+        {
+          ok: false,
+          reason: "no_such_user",
+          error: "Select and verify an account first.",
+        },
         { status: 404 }
       );
     }
@@ -385,14 +442,24 @@ export async function POST(request: Request) {
       actorId: actor.userId,
       actionType: "admin.grant_plan",
       targetUserId: target.id,
-      reason: `Granted ${grantTier} (${permanent ? "Permanent" : `${days}d`}) to ${target.email}`,
+      reason: `Granted ${grantTier} (${
+        permanent ? "Permanent" : `${days}d`
+      }) to ${target.email}`,
       createdAt: new Date().toISOString(),
     });
     persistApiStore();
     return NextResponse.json({ ok: true, account: serializeAccount(target) });
   }
 
-  if (action === "test_tier") {
+  if (action === "test_tier" || action === "test_mode") {
+    if (body.tier === null || body.tier === "") {
+      actor.userRecord.testTierOverride = undefined;
+      persistApiStore();
+      return NextResponse.json({
+        ok: true,
+        testTierOverride: null,
+      });
+    }
     const rawTier =
       typeof body.tier === "string" ? body.tier.toUpperCase() : "FREE";
     const simTier: SubscriptionTier = [
@@ -422,11 +489,14 @@ export async function POST(request: Request) {
   }
 
   if (action === "suspend" || action === "unsuspend") {
-    const uid = typeof body.uid === "string" ? body.uid.trim() : "";
-    const target = store.users.get(uid);
+    const target = findUserByUidOrEmail(store, body);
     if (!target) {
       return NextResponse.json(
-        { ok: false, reason: "no_such_user", error: "Select an account first." },
+        {
+          ok: false,
+          reason: "no_such_user",
+          error: "Select an account first.",
+        },
         { status: 404 }
       );
     }
@@ -467,7 +537,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       dryRun,
-      repairedCount: candidates.length,
+      affectedCount: candidates.length,
+      repairedCount: dryRun ? 0 : candidates.length,
       accounts: candidates.map((c) => ({
         email: c.email,
         daysAdded: 7,
@@ -512,6 +583,7 @@ export async function POST(request: Request) {
       !permanent && Number.isFinite(expiresInDays) && expiresInDays > 0
         ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString()
         : null;
+    const note = typeof body.note === "string" ? body.note.trim() : "";
 
     const record: PromoCodeRecord = {
       code: rawCode,
@@ -525,6 +597,7 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString(),
       createdBy: actor.userRecord.email || actor.userId,
       redeemedBy: [],
+      note,
     };
     store.promoCodes.set(rawCode, record);
     persistApiStore();
@@ -536,10 +609,15 @@ export async function POST(request: Request) {
 
   if (action === "promo_list") {
     const promos = Array.from(store.promoCodes.values()).map(serializePromo);
-    return NextResponse.json({ ok: true, promos });
+    return NextResponse.json({ ok: true, promos, items: promos });
   }
 
-  if (action === "promo_update") {
+  if (
+    action === "promo_update" ||
+    action === "promo_extend" ||
+    action === "promo_permanent" ||
+    action === "promo_reactivate"
+  ) {
     const code =
       typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
     const promo = store.promoCodes.get(code);
@@ -549,21 +627,25 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
-    if (typeof body.addDays === "number" && body.addDays > 0) {
-      promo.rewardDays += body.addDays;
+    const addDays = Number(body.addDays ?? body.days);
+    if (
+      (action === "promo_extend" || Number.isFinite(addDays)) &&
+      addDays > 0
+    ) {
+      promo.rewardDays += addDays;
       const baseMs = promo.expiresAt
         ? new Date(promo.expiresAt).getTime()
         : Date.now();
       promo.expiresAt = new Date(
-        baseMs + body.addDays * 86_400_000
+        baseMs + addDays * 86_400_000
       ).toISOString();
     }
-    if (body.permanent === true) {
+    if (action === "promo_permanent" || body.permanent === true) {
       promo.permanent = true;
       promo.status = "permanent";
       promo.expiresAt = null;
     }
-    if (body.reactivate === true) {
+    if (action === "promo_reactivate" || body.reactivate === true) {
       promo.status = promo.permanent ? "permanent" : "active";
       if (
         promo.expiresAt &&
@@ -616,7 +698,10 @@ export async function POST(request: Request) {
       store.appConfig.paymentsLive = body.paymentsLive === true;
     }
     if (body.minBuild !== undefined) {
-      store.appConfig.minBuild = Math.max(0, Math.floor(Number(body.minBuild) || 0));
+      store.appConfig.minBuild = Math.max(
+        0,
+        Math.floor(Number(body.minBuild) || 0)
+      );
     }
     if (body.latestBuild !== undefined) {
       store.appConfig.latestBuild = Math.max(
@@ -647,7 +732,7 @@ export async function POST(request: Request) {
       .slice(0, 300)
       .reverse()
       .map(serializeAccount);
-    return NextResponse.json({ ok: true, users: accounts });
+    return NextResponse.json({ ok: true, users: accounts, items: accounts });
   }
 
   if (action === "user_hide") {
@@ -659,7 +744,12 @@ export async function POST(request: Request) {
       );
       if (byDisplay.length > 1) {
         return NextResponse.json(
-          { ok: false, reason: "ambiguous_name", error: "Multiple accounts share that display name. Hide by UID instead." },
+          {
+            ok: false,
+            reason: "ambiguous_name",
+            error:
+              "Multiple accounts share that display name. Hide by UID instead.",
+          },
           { status: 409 }
         );
       }
@@ -679,27 +769,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, account: serializeAccount(target) });
   }
 
-  if (action === "beta_toggle") {
-    store.betaConfig.enrolmentOpen = Boolean(body.enrolmentOpen);
-    persistApiStore();
+  if (action === "beta_toggle" || action === "beta_config") {
+    if (typeof body.enrolmentOpen === "boolean") {
+      store.betaConfig.enrolmentOpen = body.enrolmentOpen;
+      persistApiStore();
+    }
+    const enrolledCount = Array.from(store.users.values()).filter(
+      (u) => u.isBeta
+    ).length;
     return NextResponse.json({
       ok: true,
       beta: {
+        enabled: store.betaConfig.enrolmentOpen,
         enrolmentOpen: store.betaConfig.enrolmentOpen,
-        betaUsersCount: Array.from(store.users.values()).filter((u) => u.isBeta)
-          .length,
+        maxSlots: 250,
+        enrolledCount,
+        betaUsersCount: enrolledCount,
       },
     });
   }
 
   if (action === "beta_revoke") {
-    const query =
-      typeof body.query === "string" ? body.query.trim().toLowerCase() : "";
-    const target = Array.from(store.users.values()).find(
-      (u) =>
-        u.email.toLowerCase() === query ||
-        (u.username || "").toLowerCase() === query.replace(/^@/, "")
-    );
+    const target = findUserByUidOrEmail(store, body);
     if (!target) {
       return NextResponse.json(
         { ok: false, reason: "no_such_user", error: "Account not found." },
@@ -714,14 +805,7 @@ export async function POST(request: Request) {
   }
 
   if (action === "tester_mark") {
-    const query =
-      typeof body.query === "string" ? body.query.trim().toLowerCase() : "";
-    const target = Array.from(store.users.values()).find(
-      (u) =>
-        u.id.toLowerCase() === query ||
-        u.email.toLowerCase() === query ||
-        (u.username || "").toLowerCase() === query.replace(/^@/, "")
-    );
+    const target = findUserByUidOrEmail(store, body);
     if (!target) {
       return NextResponse.json(
         { ok: false, reason: "no_such_user", error: "Account not found." },
@@ -749,12 +833,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, badgedCount: count });
   }
 
-  if (action === "tester_create") {
-    const rawUsername =
-      typeof body.username === "string"
+  if (action === "tester_create" || action === "tester_mint") {
+    const rawCandidate =
+      typeof body.username === "string" && body.username.trim()
         ? body.username.trim().replace(/^@/, "")
-        : "";
-    if (!/^[a-zA-Z0-9._]{3,20}$/.test(rawUsername)) {
+        : typeof body.prefix === "string" && body.prefix.trim()
+          ? body.prefix
+              .trim()
+              .replace(/^@/, "")
+              .replace(/[^a-zA-Z0-9._]/g, "_")
+          : "";
+    if (!/^[a-zA-Z0-9._]{3,20}$/.test(rawCandidate)) {
       return NextResponse.json(
         {
           ok: false,
@@ -768,17 +857,23 @@ export async function POST(request: Request) {
     const emailInput =
       typeof body.email === "string" && body.email.trim()
         ? body.email.trim().toLowerCase()
-        : `${rawUsername.toLowerCase()}@testers.contentflow.app`;
-    const mintedPassword = `CF-${crypto.randomBytes(4).toString("hex").toUpperCase()}!9`;
+        : `${rawCandidate.toLowerCase()}@testers.contentflow.app`;
+    const mintedPassword = `CF-${crypto
+      .randomBytes(4)
+      .toString("hex")
+      .toUpperCase()}!9`;
     const testerId = `tester-${Date.now()}`;
     const newTester: UserAccountRecord = {
       id: testerId,
-      name: formatCreatorDisplayName(rawUsername, emailInput),
-      username: rawUsername,
+      name: formatCreatorDisplayName(rawCandidate, emailInput),
+      username: rawCandidate,
       email: emailInput,
-      niche: "Tester workspace",
+      niche:
+        typeof body.note === "string" && body.note.trim()
+          ? body.note.trim()
+          : "Tester workspace",
       passwordHash: hashPassword(mintedPassword),
-      tier: "FREE",
+      tier: "PRO",
       roles: ["creator"],
       status: "Active",
       joinedAt: new Date().toISOString(),
@@ -799,8 +894,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       tester: serializeAccount(newTester),
+      tempPassword: mintedPassword,
       handover: {
-        username: rawUsername,
+        username: rawCandidate,
         email: emailInput,
         password: mintedPassword,
         instructions:
@@ -810,19 +906,26 @@ export async function POST(request: Request) {
   }
 
   if (action === "tester_reset_password") {
-    const uid = typeof body.uid === "string" ? body.uid.trim() : "";
-    const target = store.users.get(uid);
+    const target = findUserByUidOrEmail(store, body);
     if (!target) {
       return NextResponse.json(
-        { ok: false, reason: "no_such_user", error: "Tester account not found." },
+        {
+          ok: false,
+          reason: "no_such_user",
+          error: "Tester account not found.",
+        },
         { status: 404 }
       );
     }
-    const mintedPassword = `CF-${crypto.randomBytes(4).toString("hex").toUpperCase()}!9`;
+    const mintedPassword = `CF-${crypto
+      .randomBytes(4)
+      .toString("hex")
+      .toUpperCase()}!9`;
     target.passwordHash = hashPassword(mintedPassword);
     persistApiStore();
     return NextResponse.json({
       ok: true,
+      tempPassword: mintedPassword,
       handover: {
         username: target.username || target.name,
         email: target.email,
@@ -838,7 +941,11 @@ export async function POST(request: Request) {
       typeof body.message === "string" ? body.message.trim() : "";
     if (!subject || !message) {
       return NextResponse.json(
-        { ok: false, reason: "missing_fields", error: "Subject and message are required." },
+        {
+          ok: false,
+          reason: "missing_fields",
+          error: "Subject and message are required.",
+        },
         { status: 400 }
       );
     }
@@ -863,7 +970,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if (action === "notice_create") {
+  if (action === "notice_create" || action === "notice_publish") {
     const audience = body.audience;
     if (audience === "admin") {
       return NextResponse.json(
@@ -882,7 +989,11 @@ export async function POST(request: Request) {
     const messageBody = typeof body.body === "string" ? body.body.trim() : "";
     if (!title || !messageBody) {
       return NextResponse.json(
-        { ok: false, reason: "missing_fields", error: "Title and message are required." },
+        {
+          ok: false,
+          reason: "missing_fields",
+          error: "Title and message are required.",
+        },
         { status: 400 }
       );
     }
@@ -896,14 +1007,23 @@ export async function POST(request: Request) {
     };
     store.notices.unshift(notice);
     persistApiStore();
-    return NextResponse.json({ ok: true, notice, notices: store.notices });
+    return NextResponse.json({
+      ok: true,
+      notice,
+      notices: store.notices,
+      items: store.notices,
+    });
   }
 
   if (action === "notice_delete") {
     const id = typeof body.id === "string" ? body.id.trim() : "";
     store.notices = store.notices.filter((n) => n.id !== id);
     persistApiStore();
-    return NextResponse.json({ ok: true, notices: store.notices });
+    return NextResponse.json({
+      ok: true,
+      notices: store.notices,
+      items: store.notices,
+    });
   }
 
   if (action === "subs_list") {
@@ -919,28 +1039,100 @@ export async function POST(request: Request) {
           u.name.toLowerCase().includes(query)
       )
       .map(serializeAccount);
-    return NextResponse.json({ ok: true, subscribers: subs });
+    return NextResponse.json({ ok: true, subscribers: subs, items: subs });
   }
 
-  if (action === "sweep_run") {
+  if (action === "sweep_run" || action === "sweep_now") {
     const nowMs = Date.now();
     let expiredCount = 0;
+    let remindersQueued = 0;
     for (const u of Array.from(store.users.values())) {
-      if (
-        u.tierExpiresAt &&
-        new Date(u.tierExpiresAt).getTime() <= nowMs &&
-        !isSuperuserEmail(u.email)
-      ) {
-        u.tier = "FREE";
-        u.tierExpiresAt = undefined;
-        expiredCount += 1;
+      const expStr = u.tierExpiresAt || u.trialEndsAt;
+      if (expStr && !isSuperuserEmail(u.email)) {
+        const expMs = new Date(expStr).getTime();
+        const daysLeft = Math.ceil((expMs - nowMs) / 86_400_000);
+        if (expMs <= nowMs) {
+          u.tier = "FREE";
+          u.tierExpiresAt = undefined;
+          u.trialEndsAt = undefined;
+          expiredCount += 1;
+        } else if (daysLeft === 7 || daysLeft === 3 || daysLeft === 1) {
+          remindersQueued += 1;
+        }
       }
     }
     persistApiStore();
     return NextResponse.json({
       ok: true,
       expiredCount,
+      remindersQueued,
       sweptAt: new Date().toISOString(),
+    });
+  }
+
+  if (action === "notes_list") {
+    const items = store.adminNotes.map((n) => ({
+      id: n.id,
+      text: `${n.title}: ${n.body}`,
+      title: n.title,
+      body: n.body,
+      createdAt: n.createdAt,
+    }));
+    return NextResponse.json({ ok: true, items, adminNotes: store.adminNotes });
+  }
+
+  if (action === "stats" || action === "system_summary") {
+    const activePaidOrTrial = Array.from(store.users.values()).filter(
+      (u) => u.tier !== "FREE"
+    ).length;
+    return NextResponse.json({
+      ok: true,
+      admins: ["johnpaulonovo@gmail.com"],
+      aiEngine: {
+        primaryModel: "Cloudflare Workers AI (@cf/meta/llama-3.1-8b-instruct)",
+        hasCloudflareKey: Boolean(process.env.CLOUDFLARE_API_TOKEN),
+        backupModel: "Hugging Face / Built-in Creator Engine ($0 fallback)",
+      },
+      stats: {
+        usersCount: store.users.size,
+        totalUsers: store.users.size,
+        activePaidOrTrial,
+        activePromos: store.promoCodes.size,
+        activeNotices: store.notices.length,
+        pendingCheckouts: store.pendingCheckouts.length,
+        crashReports: store.crashReports.length,
+        totalDrafts: store.contents.size,
+        totalJobs: store.jobs.size,
+      },
+      appConfig: store.appConfig,
+      adminNotes: store.adminNotes,
+      crashReports: store.crashReports.slice(0, 12),
+      pendingCheckouts: store.pendingCheckouts,
+      waitlist: store.waitlist,
+    });
+  }
+
+  if (action === "waitlist_list") {
+    return NextResponse.json({
+      ok: true,
+      items: store.waitlist,
+      waitlist: store.waitlist,
+    });
+  }
+
+  if (action === "crash_list") {
+    return NextResponse.json({
+      ok: true,
+      items: store.crashReports.slice(0, 12),
+      crashReports: store.crashReports.slice(0, 12),
+    });
+  }
+
+  if (action === "checkouts_list") {
+    return NextResponse.json({
+      ok: true,
+      items: store.pendingCheckouts,
+      pendingCheckouts: store.pendingCheckouts,
     });
   }
 
@@ -963,30 +1155,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, crashReports: [] });
   }
 
-  if (action === "system_summary") {
-    return NextResponse.json({
-      ok: true,
-      admins: ["johnpaulonovo@gmail.com"],
-      aiEngine: {
-        primaryModel: "Cloudflare Workers AI (@cf/meta/llama-3.1-8b-instruct)",
-        hasCloudflareKey: Boolean(process.env.CLOUDFLARE_API_TOKEN),
-        backupModel: "Hugging Face / Built-in Creator Engine ($0 fallback)",
-      },
-      stats: {
-        usersCount: store.users.size,
-        totalDrafts: store.contents.size,
-        totalJobs: store.jobs.size,
-      },
-      appConfig: store.appConfig,
-      adminNotes: store.adminNotes,
-      crashReports: store.crashReports.slice(0, 12),
-      pendingCheckouts: store.pendingCheckouts,
-      waitlist: store.waitlist,
-    });
-  }
-
   return NextResponse.json(
-    { ok: false, reason: "unknown_action", error: `Unknown admin action: ${action}` },
+    {
+      ok: false,
+      reason: "unknown_action",
+      error: `Unknown admin action: ${action}`,
+    },
     { status: 400 }
   );
 }

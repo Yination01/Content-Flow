@@ -150,6 +150,7 @@ export interface PromoCodeRecord {
   createdAt: string;
   createdBy: string;
   redeemedBy: string[];
+  note?: string;
 }
 
 export interface NoticeRecord {
