@@ -178,11 +178,45 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     expect(screen.getByText(/Strong \(100%\)/i)).toBeInTheDocument();
     uSignup();
 
-    renderWithState(
+    // Verify a brand-new visitor / friend's phone never sees Johnpaul Onovo's personal info by default
+    const { container: freshDeviceContainer, unmount: uFresh } = renderWithState(
       <WorkspaceShell>
         <DashboardScreen />
       </WorkspaceShell>
     );
+    expect(freshDeviceContainer.textContent || "").not.toMatch(/Johnpaul/i);
+    expect(freshDeviceContainer.textContent || "").not.toMatch(
+      /johnpaulonovo@gmail\.com/i
+    );
+    uFresh();
+
+    // Verify that when the Superuser is signed in, their workspace unlocks Agency Max
+    window.localStorage.setItem(
+      "cf_user_profile_v1",
+      JSON.stringify({
+        id: "user-super",
+        name: "Johnpaulonovo",
+        email: "johnpaulonovo@gmail.com",
+        niche: "Multi-channel content creation",
+        tier: "AGENCY",
+        roles: ["creator", "superuser"],
+        initials: "JO",
+        usage: {
+          dailyAiGenerations: 0,
+          monthlyPostsCreated: 0,
+          monthlyCrossPosts: 0,
+          storageUsedMb: 0,
+        },
+        limits: {
+          dailyAiGenerations: 2000,
+          monthlyPosts: null,
+          monthlyCrossPosts: null,
+          storageMb: 102400,
+        },
+        connectedPlatforms: {},
+      })
+    );
+    render(<StateProvider><WorkspaceShell><DashboardScreen /></WorkspaceShell></StateProvider>);
     expect(
       screen.getByRole("heading", { level: 1, name: /Good morning, Johnpaul/i })
     ).toBeInTheDocument();
@@ -199,8 +233,9 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
   });
 
   it("verifies Phase 13 complete demo-data purge, interactive OAuth/2FA/BYOK modals, Superuser billing, and extensive Admin Control Center", () => {
-    // 1. AuthScreen interactive Google OAuth & Magic Link modals
-    const { unmount: uAuth } = renderWithState(<AuthScreen />);
+    // 1. AuthScreen interactive Google OAuth & Magic Link modals (with zero personal email pre-filled)
+    const { container: authContainer, unmount: uAuth } = renderWithState(<AuthScreen />);
+    expect(authContainer.textContent || "").not.toMatch(/johnpaulonovo/i);
     fireEvent.click(screen.getByRole("button", { name: /Continue with Google/i }));
     expect(
       screen.getByRole("dialog", { name: /Google OAuth 2\.0 PKCE Sign-In/i })
@@ -232,8 +267,35 @@ describe("ContentFlow Production Screens (Zero Demo Artifacts & Real API Wiring)
     uDash();
 
     // 3. SettingsScreen: Billing 0% progress + Superuser permanent unlock & Security 2FA
-    const { unmount: uBilling } = renderWithState(
-      <SettingsScreen initialSection="Billing" />
+    window.localStorage.setItem(
+      "cf_user_profile_v1",
+      JSON.stringify({
+        id: "user-super",
+        name: "Johnpaul Onovo",
+        email: "johnpaulonovo@gmail.com",
+        niche: "Multi-channel content creation",
+        tier: "AGENCY",
+        roles: ["creator", "superuser"],
+        initials: "JO",
+        usage: {
+          dailyAiGenerations: 0,
+          monthlyPostsCreated: 0,
+          monthlyCrossPosts: 0,
+          storageUsedMb: 0,
+        },
+        limits: {
+          dailyAiGenerations: 2000,
+          monthlyPosts: null,
+          monthlyCrossPosts: null,
+          storageMb: 102400,
+        },
+        connectedPlatforms: {},
+      })
+    );
+    const { unmount: uBilling } = render(
+      <StateProvider>
+        <SettingsScreen initialSection="Billing" />
+      </StateProvider>
     );
     expect(screen.getByText(/Max Tier Unlocked \(\$0\)/i)).toBeInTheDocument();
     expect(
