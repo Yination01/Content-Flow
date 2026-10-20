@@ -5,12 +5,32 @@ import {
   type SubscriptionTier,
 } from "@/lib/policy";
 
+export interface StoryboardScene {
+  sceneNumber: number;
+  timestamp: string;
+  durationSec: number;
+  visualCue: string;
+  onScreenText: string;
+  voiceoverScript: string;
+}
+
+export interface ConnectedChannelContext {
+  handle?: string;
+  channelTitle?: string;
+  followersCount?: number;
+}
+
 export interface AiGenerationParams {
   prompt: string;
   modality: "text" | "image" | "video";
+  contentType?: "Text" | "Image" | "Video";
+  videoFormat?: string;
+  visualStyle?: string;
   tone?: string;
   format?: string;
   platforms?: string[];
+  targetPlatforms?: string[];
+  connectedChannels?: Record<string, ConnectedChannelContext>;
   byokKey?: string;
   byokProvider?: "openai" | "replicate";
 }
@@ -35,10 +55,16 @@ export interface AiGenerationOutput {
   xThread: string;
   linkedinPost: string;
   facebookPost: string;
+  platformDrafts: Record<string, string>;
+  storyboardScenes: StoryboardScene[];
   tokensUsed: number;
 }
 
-function buildAdaptations(prompt: string, rawText: string) {
+function buildAdaptations(
+  prompt: string,
+  rawText: string,
+  params?: AiGenerationParams
+) {
   const cleanTopic = prompt
     .replace(/^write\s+(a|an)\s+/i, "")
     .replace(/[.?!]+$/, "")
@@ -49,36 +75,141 @@ function buildAdaptations(prompt: string, rawText: string) {
     rawText.split("\n\n")[0] ||
     "Build a creative workflow you can sustain across every channel.";
 
+  const channels = params?.connectedChannels || {};
+  const ytHandle = channels.youtube?.handle || "@YourYouTubeChannel";
+  const ttHandle = channels.tiktok?.handle || "@YourTikTok";
+  const igHandle = channels.instagram?.handle || "@YourInstagram";
+  const xHandle = channels.x?.handle || "@YourXHandle";
+  const liHandle = channels.linkedin?.handle || "@YourLinkedIn";
+  const fbHandle = channels.facebook?.handle || "@YourFacebookPage";
+
+  const visualStyle =
+    params?.visualStyle || "Kinetic Captions + B-Roll Cues";
+  const videoFormat =
+    params?.videoFormat ||
+    params?.format ||
+    "60s Vertical Short / TikTok / Reel (9:16)";
+
+  const storyboardScenes: StoryboardScene[] = [
+    {
+      sceneNumber: 1,
+      timestamp: "00:00 - 00:04",
+      durationSec: 4,
+      visualCue: `[${visualStyle}] Fast punch-in close-up with high-contrast hook banner`,
+      onScreenText: headline.slice(0, 48).toUpperCase(),
+      voiceoverScript: `Stop scrolling: here is the real reason why ${cleanTopic.toLowerCase()} changes everything for creators.`,
+    },
+    {
+      sceneNumber: 2,
+      timestamp: "00:04 - 00:16",
+      durationSec: 12,
+      visualCue: `[${visualStyle}] Split-screen comparison showing common mistake vs repeatable system`,
+      onScreenText: "1. THE CORE MISTAKE VS SYSTEM",
+      voiceoverScript: `Most people rely on short bursts of energy and burn out within two weeks. Instead, anchor on a small daily rhythm you can repeat even on your busiest days.`,
+    },
+    {
+      sceneNumber: 3,
+      timestamp: "00:16 - 00:34",
+      durationSec: 18,
+      visualCue: `[${visualStyle}] Over-the-shoulder studio shot with 3 numbered kinetic callouts`,
+      onScreenText: "2. THE 3-STEP EXECUTION PLAYBOOK",
+      voiceoverScript: `First, batch your core idea once. Second, shape the hook natively for each platform's audience. Third, review retention metrics weekly.`,
+    },
+    {
+      sceneNumber: 4,
+      timestamp: "00:34 - 00:48",
+      durationSec: 14,
+      visualCue: `[${visualStyle}] Direct-to-camera takeaway + animated end-card CTA`,
+      onScreenText: `FOLLOW ${ttHandle !== "@YourTikTok" ? ttHandle : ytHandle} FOR PART 2`,
+      voiceoverScript: `Save this video for your next studio session and drop your biggest takeaway in the comments below.`,
+    },
+  ];
+
+  const platformDrafts: Record<string, string> = {
+    youtube: [
+      `YOUTUBE STUDIO SCRIPT & SEO PACK (${ytHandle}) · Format: ${videoFormat}`,
+      `TITLE: ${headline} - Practical Creator Guide`,
+      ``,
+      `[00:00] HOOK: ${storyboardScenes[0].voiceoverScript}`,
+      `[00:45] CORE INSIGHT: ${firstParagraph}`,
+      `[02:15] 3-STEP SYSTEM: ${storyboardScenes[2].voiceoverScript}`,
+      `[04:30] OUTRO & CTA: Subscribe to ${ytHandle} and let me know which step you are testing this week.`,
+    ].join("\n"),
+    tiktok: [
+      `TIKTOK VERTICAL VIDEO SCRIPT (${ttHandle}) · 9:16 Fast-Paced`,
+      `[0-3s VISUAL]: ${storyboardScenes[0].visualCue}`,
+      `[ON-SCREEN TEXT]: "${storyboardScenes[0].onScreenText}"`,
+      `[AUDIO]: "${storyboardScenes[0].voiceoverScript}"`,
+      ``,
+      `[3-18s BEAT 1]: ${storyboardScenes[1].voiceoverScript}`,
+      `[18-40s BEAT 2]: ${storyboardScenes[2].voiceoverScript}`,
+      `[40-50s CTA]: Follow ${ttHandle} & save this for your next session!`,
+      `CAPTION: ${headline} #creatorworkflow #contentstrategy #tiktokgrowth`,
+    ].join("\n"),
+    instagram: [
+      `INSTAGRAM REEL & CAROUSEL PACK (${igHandle})`,
+      `SLIDE 1 (HOOK): ${headline}`,
+      `SLIDE 2 (THE PROBLEM): Why intensity fails without a repeatable system`,
+      `SLIDE 3 (THE SHIFT): ${firstParagraph.slice(0, 140)}`,
+      `SLIDE 4 (ACTION STEP): ${storyboardScenes[2].voiceoverScript}`,
+      `SLIDE 5 (CTA): Save this post & follow ${igHandle} for daily frameworks.`,
+      ``,
+      `CAPTION: ${headline}\n\n${firstParagraph.slice(0, 220)}\n\nSave this post via ${igHandle} for your next studio session.`,
+    ].join("\n"),
+    x: [
+      `X (TWITTER) MULTI-POST THREAD (${xHandle})`,
+      `1/5 ${headline} — a quick thread from ${xHandle}:`,
+      `2/5 ${storyboardScenes[1].voiceoverScript}`,
+      `3/5 ${storyboardScenes[2].voiceoverScript}`,
+      `4/5 ${firstParagraph.slice(0, 210)}`,
+      `5/5 If you found this useful, follow ${xHandle} and bookmark 1/5 for your next content sprint.`,
+    ].join("\n\n"),
+    linkedin: [
+      `LINKEDIN AUTHORITY POST (${liHandle})`,
+      `${headline}`,
+      ``,
+      `${firstParagraph}`,
+      ``,
+      `Key takeaways from our recent workflow sprint (${liHandle}):`,
+      `• Systemize the repeatable 80% so creative energy goes into the top 20%`,
+      `• Tailor every hook to the native expectations of each feed`,
+      `• Measure 30-day compounding consistency over one-off viral spikes`,
+      ``,
+      `How are you structuring your publishing cadence this quarter?`,
+    ].join("\n"),
+    facebook: [
+      `FACEBOOK PAGE & REELS POST (${fbHandle})`,
+      `${headline}`,
+      ``,
+      `${firstParagraph}`,
+      ``,
+      `We just shared the full breakdown on ${fbHandle} — drop a comment below if you want the step-by-step checklist!`,
+    ].join("\n"),
+  };
+
   return {
     title: headline || "Untitled Creator Draft",
     youtubeTitle: `${headline} - Practical Creator Guide`.slice(0, 100),
-    youtubeDescription: `${firstParagraph}\n\nTopics covered in this release:\n• Core framework for ${cleanTopic.toLowerCase()}\n• Repeatable execution checklist\n• Channel-specific takeaways`.slice(
+    youtubeDescription: `${firstParagraph}\n\nChannel: ${ytHandle}\nTopics covered in this release:\n• Core framework for ${cleanTopic.toLowerCase()}\n• Repeatable execution checklist\n• Channel-specific takeaways`.slice(
       0,
       5000
     ),
     youtubeTags: "contentflow, creator workflow, youtube strategy, productivity",
-    tiktokCaption: `${firstParagraph.slice(0, 140)} - Save this for your next publishing session.`.slice(
+    tiktokCaption: `${firstParagraph.slice(0, 130)} · Follow ${ttHandle} for more.`.slice(
       0,
       2200
     ),
     tiktokHashtags: "#creatorworkflow #contentstrategy #buildinpublic #consistency",
-    instagramCaption: `${headline}\n\n${firstParagraph.slice(0, 220)}\n\nSwipe or save this reel for your next studio session.`.slice(
+    instagramCaption: `${headline}\n\n${firstParagraph.slice(0, 200)}\n\nSwipe or save this reel via ${igHandle}.`.slice(
       0,
       2200
     ),
     instagramHashtags: "#creators #reelsstrategy #contentworkflow #digitalcreator",
-    xThread: `1/ ${headline}\n\n${firstParagraph.slice(0, 180)}\n\n2/ Focus on one high-signal takeaway per post and adapt it natively for each channel.`.slice(
-      0,
-      560
-    ),
-    linkedinPost: `${headline}\n\n${firstParagraph}\n\nHow are you structuring your multi-channel publishing workflow this quarter?`.slice(
-      0,
-      3000
-    ),
-    facebookPost: `${headline}\n\n${firstParagraph}\n\nDrop a comment if you want the full checklist!`.slice(
-      0,
-      2000
-    ),
+    xThread: platformDrafts.x.slice(0, 950),
+    linkedinPost: platformDrafts.linkedin.slice(0, 3000),
+    facebookPost: platformDrafts.facebook.slice(0, 2000),
+    platformDrafts,
+    storyboardScenes,
   };
 }
 
@@ -114,7 +245,7 @@ export async function executeAiGeneration(
             plan: "A",
             text: outputText,
             tokensUsed: 210,
-            ...buildAdaptations(params.prompt, outputText),
+            ...buildAdaptations(params.prompt, outputText, params),
           };
         }
       } catch {
@@ -146,7 +277,7 @@ export async function executeAiGeneration(
             plan: "A",
             text,
             tokensUsed: Number(data?.usage?.total_tokens || 180),
-            ...buildAdaptations(params.prompt, text),
+            ...buildAdaptations(params.prompt, text, params),
           };
         }
       } catch {
@@ -180,7 +311,7 @@ export async function executeAiGeneration(
           plan: "B",
           text,
           tokensUsed: 165,
-          ...buildAdaptations(params.prompt, text),
+          ...buildAdaptations(params.prompt, text, params),
         };
       }
     } catch {
@@ -214,7 +345,7 @@ export async function executeAiGeneration(
           plan: "C",
           text,
           tokensUsed: 150,
-          ...buildAdaptations(params.prompt, text),
+          ...buildAdaptations(params.prompt, text, params),
         };
       }
     } catch {
@@ -235,7 +366,7 @@ export async function executeAiGeneration(
     plan: "B",
     text: generatedText,
     tokensUsed: 148,
-    ...buildAdaptations(params.prompt, generatedText),
+    ...buildAdaptations(params.prompt, generatedText, params),
   };
 }
 

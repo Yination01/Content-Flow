@@ -17,6 +17,33 @@ import {
   renderSceneToSvgDataUrl,
 } from "@/lib/video/client-renderer";
 import { buildTeleprompterPlan } from "@/lib/teleprompter/pacing";
+
+function getMinimumTierForPlatform(
+  platform: "youtube" | "tiktok" | "instagram" | "x" | "linkedin" | "facebook"
+): "FREE" | "CREATOR" | "PRO" {
+  if (platform === "youtube" || platform === "tiktok") return "FREE";
+  if (platform === "instagram" || platform === "x") return "CREATOR";
+  return "PRO";
+}
+
+function isPlatformAllowedForTier(
+  platform: "youtube" | "tiktok" | "instagram" | "x" | "linkedin" | "facebook",
+  tier: string,
+  roles?: readonly string[]
+): boolean {
+  if (roles?.includes(ADMIN_ROLE_KEY) || roles?.includes("admin")) return true;
+  const upper = String(tier || "FREE").toUpperCase();
+  if (upper === "PRO" || upper === "AGENCY") return true;
+  if (upper === "CREATOR") {
+    return (
+      platform === "youtube" ||
+      platform === "tiktok" ||
+      platform === "instagram" ||
+      platform === "x"
+    );
+  }
+  return platform === "youtube" || platform === "tiktok";
+}
 import {
   AlertTriangle,
   ArrowRight,
@@ -2075,6 +2102,16 @@ function PlatformVerificationModal({
     existingConnection?.channelTitle || ""
   );
   const [accessToken, setAccessToken] = useState("");
+  const [customFollowers, setCustomFollowers] = useState(
+    existingConnection?.analytics?.followersCount !== undefined
+      ? String(existingConnection.analytics.followersCount)
+      : ""
+  );
+  const [customViews, setCustomViews] = useState(
+    existingConnection?.analytics?.totalViews !== undefined
+      ? String(existingConnection.analytics.totalViews)
+      : ""
+  );
   const [pkceState, setPkceState] = useState("");
   const [pkceChallenge, setPkceChallenge] = useState("");
   const [verifying, setVerifying] = useState(false);
@@ -2083,6 +2120,16 @@ function PlatformVerificationModal({
   useEffect(() => {
     setHandle(existingConnection?.handle || "");
     setChannelTitle(existingConnection?.channelTitle || "");
+    setCustomFollowers(
+      existingConnection?.analytics?.followersCount !== undefined
+        ? String(existingConnection.analytics.followersCount)
+        : ""
+    );
+    setCustomViews(
+      existingConnection?.analytics?.totalViews !== undefined
+        ? String(existingConnection.analytics.totalViews)
+        : ""
+    );
     setVerifyError("");
     if (open && !connected) {
       void (async () => {
@@ -2107,10 +2154,29 @@ function PlatformVerificationModal({
   }, [open, connected, platform, existingConnection, defaultHandle]);
 
   async function verifyAndConnect() {
-    setVerifying(true);
     setVerifyError("");
     const scopes = meta.defaultScopes;
-    const rawHandle = handle.trim() || existingConnection?.handle || `@creator_${platform}`;
+    const rawHandle = (handle.trim() || existingConnection?.handle || "").trim();
+    if (
+      !rawHandle ||
+      /^@?creator_(youtube|tiktok|instagram|x|linkedin|facebook)$/i.test(rawHandle)
+    ) {
+      setVerifyError(
+        `Please enter your real ${label} @handle or profile URL (for example ${meta.placeholder}) so we can verify your account and fetch your analytics.`
+      );
+      return;
+    }
+
+    setVerifying(true);
+    const parsedFollowers =
+      customFollowers.trim() !== "" && !Number.isNaN(Number(customFollowers))
+        ? Number(customFollowers)
+        : undefined;
+    const parsedViews =
+      customViews.trim() !== "" && !Number.isNaN(Number(customViews))
+        ? Number(customViews)
+        : undefined;
+
     try {
       const res = await fetch("/api/v1/platforms/verify", {
         method: "POST",
@@ -2121,6 +2187,8 @@ function PlatformVerificationModal({
           handleOrUrl: rawHandle,
           handle: rawHandle,
           channelTitle: channelTitle.trim(),
+          followersCount: parsedFollowers,
+          totalViews: parsedViews,
           accessToken: accessToken.trim() || undefined,
           scopes,
         }),
@@ -2155,7 +2223,7 @@ function PlatformVerificationModal({
         return;
       }
     } catch {
-      // Fallback
+      // Fallback if network request fails in offline PWA mode
     }
     const cleanFallback = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
     onVerified({
@@ -2167,8 +2235,8 @@ function PlatformVerificationModal({
       verifiedAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 28 * 24 * 3600 * 1000).toISOString(),
       analytics: {
-        followersCount: 1240,
-        totalViews: 28400,
+        followersCount: parsedFollowers ?? 1240,
+        totalViews: parsedViews ?? 28400,
         videosCount: 24,
         engagementRate: "5.4%",
         avgViewsPerPost: 1183,
@@ -2354,20 +2422,42 @@ function PlatformVerificationModal({
           </div>
         )}
         <Field
-          label={`${label} Channel @Handle or Profile URL`}
+          label={`${label} Channel @Handle or Profile URL (Required)`}
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
           placeholder={meta.placeholder}
         />
         <Field
-          label="Channel Display Title (optional)"
+          label="Channel Display Title (optional · auto-detected from profile)"
           value={channelTitle}
           onChange={(e) => setChannelTitle(e.target.value)}
           placeholder={`e.g. Official ${label} Channel`}
         />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: "0.55rem",
+          }}
+        >
+          <Field
+            label={`${platform === "youtube" ? "Subscribers" : "Followers"} (auto or manual)`}
+            type="number"
+            value={customFollowers}
+            onChange={(e) => setCustomFollowers(e.target.value)}
+            placeholder="Auto-fetched from URL"
+          />
+          <Field
+            label="30-Day Views (auto or manual)"
+            type="number"
+            value={customViews}
+            onChange={(e) => setCustomViews(e.target.value)}
+            placeholder="Auto-fetched from URL"
+          />
+        </div>
         {!connected && (
           <Field
-            label="Optional OAuth Access Token (leave blank for managed PKCE)"
+            label="Optional OAuth Access Token (leave blank for live URL verification)"
             type="password"
             value={accessToken}
             onChange={(e) => setAccessToken(e.target.value)}
@@ -2621,17 +2711,25 @@ export function DashboardScreen() {
             const meta = SOCIAL_PLATFORM_META[pid];
             const info = currentUser.connectedPlatforms?.[pid];
             const isConn = Boolean(info?.connected);
-            const detailText = isConn
-              ? `${info?.handle || "@connected"} · ${
-                  info?.analytics
-                    ? `${info.analytics.followersCount.toLocaleString()} followers · ${info.analytics.totalViews.toLocaleString()} views`
-                    : "Verified · Click Manage for channel analytics"
-                }`
-              : meta.description;
+            const allowed = isPlatformAllowedForTier(
+              pid,
+              currentUser.tier,
+              currentUser.roles
+            );
+            const minTier = getMinimumTierForPlatform(pid);
+            const detailText = !allowed
+              ? `Requires ${minTier}+ tier · ${meta.description}`
+              : isConn
+                ? `${info?.handle || "@connected"} · ${
+                    info?.analytics
+                      ? `${info.analytics.followersCount.toLocaleString()} followers · ${info.analytics.totalViews.toLocaleString()} views`
+                      : "Verified · Click Manage for channel analytics"
+                  }`
+                : meta.description;
             return (
               <ConnectionCard
                 key={pid}
-                platform={meta.label}
+                platform={allowed ? meta.label : `${meta.label} (${minTier}+)`}
                 connected={isConn}
                 detail={detailText}
                 icon={
@@ -2641,7 +2739,15 @@ export function DashboardScreen() {
                     <strong>{meta.shortBadge}</strong>
                   )
                 }
-                onToggle={() => setActivePlatformModal(pid)}
+                onToggle={() => {
+                  if (!allowed) {
+                    setToast(
+                      `${meta.label} requires the ${minTier} tier or higher. Upgrade in Settings -> Billing to unlock.`
+                    );
+                    return;
+                  }
+                  setActivePlatformModal(pid);
+                }}
               />
             );
           })}
@@ -2714,15 +2820,38 @@ function Toggle({
 
 export function CreateScreen() {
   const router = useRouter();
-  const { setHasContent, currentUser, updateCurrentUser } = useAppState();
+  const { setHasContent, addJobs, currentUser, updateCurrentUser } =
+    useAppState();
   const [prompt, setPrompt] = useState("");
-  const [type, setType] = useState("Text");
+  const [type, setType] = useState<"Text" | "Image" | "Video">("Text");
   const [tone, setTone] = useState("Clear & encouraging");
-  const [format, setFormat] = useState("Short article");
+  const [format, setFormat] = useState("Platform-Matched Multi-Channel Pack");
+  const [videoFormat, setVideoFormat] = useState(
+    "60s Vertical Short / TikTok / Reel (9:16)"
+  );
+  const [visualStyle, setVisualStyle] = useState(
+    "Kinetic Captions + B-Roll Cues"
+  );
   const [loading, setLoading] = useState(false);
+  const [pipelineStep, setPipelineStep] = useState<1 | 2 | 3>(1);
   const [generated, setGenerated] = useState(false);
   const [result, setResult] = useState("");
   const [adaptations, setAdaptations] = useState<Record<string, string>>({});
+  const [platformDrafts, setPlatformDrafts] = useState<Record<string, string>>(
+    {}
+  );
+  const [activePreviewTab, setActivePreviewTab] = useState<string>("master");
+  const [storyboardScenes, setStoryboardScenes] = useState<
+    Array<{
+      sceneNumber: number;
+      timestamp: string;
+      durationSec: number;
+      visualCue: string;
+      onScreenText: string;
+      voiceoverScript: string;
+    }>
+  >([]);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const [remainingQuota, setRemainingQuota] = useState(
     Math.max(
       0,
@@ -2732,21 +2861,48 @@ export function CreateScreen() {
   );
   const [videoAspect, setVideoAspect] = useState<"9:16" | "16:9">("9:16");
   const [activeSceneIdx, setActiveSceneIdx] = useState(0);
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([
-    "YouTube",
-    "TikTok",
-    "Instagram",
-    "X",
-  ]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<
+    SocialPlatformId[]
+  >(["youtube", "tiktok"]);
   const [toast, setToast] = useState("");
 
-  function toggleTargetPlatform(label: string) {
+  function handleSelectContentType(nextType: "Text" | "Image" | "Video") {
+    setType(nextType);
+    if (nextType === "Video") {
+      setTone("High-Retention 3-Second Hook + Fast Pacing");
+      setVideoFormat("60s Vertical Short / TikTok / Reel (9:16)");
+      setVisualStyle("Kinetic Captions + B-Roll Cues");
+      setVideoAspect("9:16");
+    } else if (nextType === "Image") {
+      setFormat("5-Slide Carousel (Instagram / LinkedIn 4:5)");
+      setVisualStyle("Editorial High-Contrast Studio");
+      setTone("Clear & encouraging");
+    } else {
+      setFormat("Platform-Matched Multi-Channel Pack");
+      setTone("Clear & encouraging");
+    }
+  }
+
+  function toggleTargetPlatform(pid: SocialPlatformId) {
+    const allowed = isPlatformAllowedForTier(
+      pid,
+      currentUser.tier,
+      currentUser.roles
+    );
+    if (!allowed) {
+      const minTier = getMinimumTierForPlatform(pid);
+      const label = SOCIAL_PLATFORM_META[pid].label;
+      setToast(
+        `${label} is unlocked on the ${minTier} tier and above. Upgrade in Settings -> Billing to generate for ${label}.`
+      );
+      return;
+    }
     setSelectedPlatforms((prev) =>
-      prev.includes(label)
+      prev.includes(pid)
         ? prev.length > 1
-          ? prev.filter((item) => item !== label)
+          ? prev.filter((item) => item !== pid)
           : prev
-        : [...prev, label]
+        : [...prev, pid]
     );
   }
 
@@ -2760,36 +2916,90 @@ export function CreateScreen() {
     );
   }, [currentUser]);
 
+  // Auto-advance scenes when the user clicks "Play AI Video Preview"
+  useEffect(() => {
+    if (!isPlayingPreview) return;
+    const timer = setInterval(() => {
+      setActiveSceneIdx((prev) => {
+        const count = Math.max(storyboardScenes.length, 3);
+        if (prev + 1 >= count) {
+          setIsPlayingPreview(false);
+          return 0;
+        }
+        return prev + 1;
+      });
+    }, 2800);
+    return () => clearInterval(timer);
+  }, [isPlayingPreview, storyboardScenes.length]);
+
   async function generate() {
     if (!prompt.trim()) return;
     setLoading(true);
     setGenerated(false);
+    setIsPlayingPreview(false);
+    setPipelineStep(1);
+    const stepTimer1 = setTimeout(() => setPipelineStep(2), 260);
+    const stepTimer2 = setTimeout(() => setPipelineStep(3), 520);
+
+    const activeFormat = type === "Video" ? videoFormat : format;
+    const connectedMap: Record<
+      string,
+      { handle?: string; channelTitle?: string; followersCount?: number }
+    > = {};
+    for (const [k, v] of Object.entries(currentUser.connectedPlatforms || {})) {
+      if (v?.connected && v.handle) {
+        connectedMap[k] = {
+          handle: v.handle,
+          channelTitle: v.channelTitle,
+          followersCount: v.analytics?.followersCount,
+        };
+      }
+    }
+
     try {
       const res = await fetch("/api/v1/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: prompt.trim(),
+          contentType: type,
           modality: type.toLowerCase(),
           tone,
-          format,
-          platforms: selectedPlatforms,
+          format: activeFormat,
+          videoFormat: type === "Video" ? videoFormat : undefined,
+          visualStyle: type !== "Text" ? visualStyle : undefined,
+          targetPlatforms: selectedPlatforms,
+          platforms: selectedPlatforms.map(
+            (p) => SOCIAL_PLATFORM_META[p].label
+          ),
+          connectedChannels: connectedMap,
         }),
       });
       const data = await res.json();
       if (res.ok && data?.result) {
         setResult(data.result);
         setAdaptations(data.adaptations || {});
+        setPlatformDrafts(
+          data.platformDrafts || data?.data?.platformDrafts || {}
+        );
+        setStoryboardScenes(
+          Array.isArray(data.storyboardScenes)
+            ? data.storyboardScenes
+            : Array.isArray(data?.data?.storyboardScenes)
+              ? data.data.storyboardScenes
+              : []
+        );
+        setActivePreviewTab("master");
+        setActiveSceneIdx(0);
         if (typeof data.remainingDailyGenerations === "number") {
           setRemainingQuota(data.remainingDailyGenerations);
         }
         updateCurrentUser({
           usage: {
             ...currentUser.usage,
-            dailyAiGenerations:
-              data.CachedHit
-                ? currentUser.usage.dailyAiGenerations
-                : currentUser.usage.dailyAiGenerations + 1,
+            dailyAiGenerations: data.cacheHit
+              ? currentUser.usage.dailyAiGenerations
+              : currentUser.usage.dailyAiGenerations + 1,
           },
         });
         setGenerated(true);
@@ -2802,11 +3012,13 @@ export function CreateScreen() {
       );
       setGenerated(true);
     } finally {
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
       setLoading(false);
     }
   }
 
-  async function save() {
+  async function saveAndOpenStudio() {
     setHasContent(true);
     try {
       const res = await fetch("/api/v1/content", {
@@ -2817,7 +3029,11 @@ export function CreateScreen() {
           originalText: prompt,
           generatedScript: result,
           contentType: type.toLowerCase(),
-          metadata: adaptations,
+          metadata: {
+            ...adaptations,
+            platformDrafts,
+            storyboardScenes,
+          },
         }),
       });
       if (res.ok) {
@@ -2833,12 +3049,64 @@ export function CreateScreen() {
     router.push("/content/1");
   }
 
+  function scheduleSelectedPlatformsNow() {
+    setHasContent(true);
+    const labels = selectedPlatforms.map((p) => SOCIAL_PLATFORM_META[p].label);
+    const draftTitle =
+      adaptations.title || prompt.slice(0, 64) || "Multi-Platform Studio Release";
+    addJobs(labels, "Queued · Next optimal window", draftTitle);
+    setToast(
+      `Scheduled "${draftTitle}" for ${labels.join(", ")} · opening Jobs queue`
+    );
+    router.push("/jobs");
+  }
+
+  function togglePlayAiVideoWithVoiceover(
+    scenesToSpeak: Array<{ voiceoverScript: string }>
+  ) {
+    if (isPlayingPreview) {
+      setIsPlayingPreview(false);
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      return;
+    }
+    setActiveSceneIdx(0);
+    setIsPlayingPreview(true);
+    if (
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window &&
+      typeof SpeechSynthesisUtterance !== "undefined"
+    ) {
+      try {
+        window.speechSynthesis.cancel();
+        const fullVoiceover = scenesToSpeak
+          .map((s) => s.voiceoverScript)
+          .join(" ");
+        const utter = new SpeechSynthesisUtterance(fullVoiceover);
+        utter.rate = 1.02;
+        window.speechSynthesis.speak(utter);
+      } catch {
+        // Ignore if browser blocks unprompted audio
+      }
+    }
+  }
+
+  const PLATFORM_FORMAT_HINTS: Record<SocialPlatformId, string> = {
+    youtube: "Script + Timestamp Chapters + SEO",
+    tiktok: "9:16 Hook + Visual/Audio Beats",
+    instagram: "5-Slide Carousel + Reel Caption",
+    x: "5-Post Thread (<= 280 chars each)",
+    linkedin: "Authority Story + Bullet Takeaways",
+    facebook: "Community Page + Reels Post",
+  };
+
   return (
     <>
       <PageHeader
         eyebrow="AI creation workspace"
-        title="Turn an idea into a strong first draft"
-        description="Describe what you want to make. You stay in control of every word."
+        title="Turn an idea into platform-ready content"
+        description="Choose your target platforms and content type. Every script, hook, and video scene adapts directly to your channels."
         action={
           <div className="quota-pill">
             <Sparkles size={15} aria-hidden="true" />
@@ -2849,6 +3117,261 @@ export function CreateScreen() {
       />
       <div className="create-layout">
         <Card className="creation-panel">
+          <div className="option-section">
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                gap: "0.5rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <label>
+                1. Target platforms ({selectedPlatforms.length} selected)
+              </label>
+              <small style={{ color: "var(--muted)", fontSize: "0.75rem" }}>
+                Your selected platforms directly shape the hook, length &amp; format
+              </small>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+                gap: "0.5rem",
+                marginTop: "0.45rem",
+              }}
+            >
+              {(
+                [
+                  "youtube",
+                  "tiktok",
+                  "instagram",
+                  "x",
+                  "linkedin",
+                  "facebook",
+                ] as SocialPlatformId[]
+              ).map((pid) => {
+                const meta = SOCIAL_PLATFORM_META[pid];
+                const allowed = isPlatformAllowedForTier(
+                  pid,
+                  currentUser.tier,
+                  currentUser.roles
+                );
+                const minTier = getMinimumTierForPlatform(pid);
+                const active = allowed && selectedPlatforms.includes(pid);
+                const connInfo = currentUser.connectedPlatforms?.[pid];
+                return (
+                  <button
+                    type="button"
+                    key={pid}
+                    role="switch"
+                    aria-checked={active}
+                    onClick={() => toggleTargetPlatform(pid)}
+                    style={{
+                      display: "grid",
+                      gap: "0.18rem",
+                      textAlign: "left",
+                      padding: "0.55rem 0.7rem",
+                      borderRadius: "10px",
+                      border: active
+                        ? "1.5px solid var(--accent)"
+                        : "1px solid var(--line)",
+                      background: active
+                        ? "var(--primary-soft)"
+                        : "var(--surface-soft)",
+                      opacity: allowed ? 1 : 0.68,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                      }}
+                    >
+                      <strong style={{ fontSize: "0.84rem" }}>
+                        {meta.label}
+                      </strong>
+                      {!allowed ? (
+                        <span
+                          style={{
+                            fontSize: "0.66rem",
+                            padding: "1px 6px",
+                            borderRadius: "999px",
+                            background: "var(--surface)",
+                            border: "1px solid var(--line)",
+                            color: "var(--muted)",
+                          }}
+                        >
+                          {minTier}+
+                        </span>
+                      ) : connInfo?.connected ? (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "var(--accent)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {connInfo.handle}
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "var(--muted)",
+                          }}
+                        >
+                          {active ? "Selected" : "Select"}
+                        </span>
+                      )}
+                    </div>
+                    <small
+                      style={{
+                        fontSize: "0.7rem",
+                        color: "var(--muted)",
+                        lineHeight: 1.25,
+                      }}
+                    >
+                      {PLATFORM_FORMAT_HINTS[pid]}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="option-section">
+            <label>2. Content type</label>
+            <div className="segmented">
+              {(["Text", "Image", "Video"] as const).map((item) => (
+                <button
+                  type="button"
+                  className={type === item ? "active" : ""}
+                  onClick={() => handleSelectContentType(item)}
+                  key={item}
+                >
+                  {item === "Text" ? (
+                    <FileText size={17} aria-hidden="true" />
+                  ) : item === "Image" ? (
+                    <Image size={17} aria-hidden="true" />
+                  ) : (
+                    <Film size={17} aria-hidden="true" />
+                  )}
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {type === "Video" ? (
+            <div className="form-grid">
+              <label className="field">
+                <span className="field__label">Video format &amp; aspect ratio</span>
+                <select
+                  className="input"
+                  value={videoFormat}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setVideoFormat(val);
+                    setVideoAspect(val.includes("16:9") ? "16:9" : "9:16");
+                  }}
+                >
+                  <option>60s Vertical Short / TikTok / Reel (9:16)</option>
+                  <option>3-5 min YouTube Explainer (16:9)</option>
+                  <option>10+ min YouTube Deep-Dive (16:9)</option>
+                  <option>30s Hook + Product Demo Clip (9:16)</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Visual scene style</span>
+                <select
+                  className="input"
+                  value={visualStyle}
+                  onChange={(e) => setVisualStyle(e.target.value)}
+                >
+                  <option>Kinetic Captions + B-Roll Cues</option>
+                  <option>Creator Talking-Head + Text Overlays</option>
+                  <option>Cinematic Storyboard + Voiceover</option>
+                  <option>Fast-Cut Educational Breakdown</option>
+                </select>
+              </label>
+              <label className="field" style={{ gridColumn: "1 / -1" }}>
+                <span className="field__label">Pacing &amp; voiceover tone</span>
+                <select
+                  className="input"
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value)}
+                >
+                  <option>High-Retention 3-Second Hook + Fast Pacing</option>
+                  <option>Warm &amp; Conversational Storytelling</option>
+                  <option>Direct &amp; Tactical Step-by-Step</option>
+                  <option>Bold &amp; Contrarian Opinion</option>
+                </select>
+              </label>
+            </div>
+          ) : type === "Image" ? (
+            <div className="form-grid">
+              <label className="field">
+                <span className="field__label">Visual format</span>
+                <select
+                  className="input"
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value)}
+                >
+                  <option>5-Slide Carousel (Instagram / LinkedIn 4:5)</option>
+                  <option>Single High-Impact Social Graphic (1:1)</option>
+                  <option>YouTube High-CTR Thumbnail Concept (16:9)</option>
+                  <option>Visual Infographic Summary (9:16)</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Visual scene style</span>
+                <select
+                  className="input"
+                  value={visualStyle}
+                  onChange={(e) => setVisualStyle(e.target.value)}
+                >
+                  <option>Editorial High-Contrast Studio</option>
+                  <option>Minimalist Studio Cards</option>
+                  <option>Bold Creator Typography + Callouts</option>
+                </select>
+              </label>
+            </div>
+          ) : (
+            <div className="form-grid">
+              <label className="field">
+                <span className="field__label">Writing tone</span>
+                <select
+                  className="input"
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value)}
+                >
+                  <option>Clear &amp; encouraging</option>
+                  <option>Confident &amp; direct</option>
+                  <option>Warm &amp; conversational</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Post structure</span>
+                <select
+                  className="input"
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value)}
+                >
+                  <option>Platform-Matched Multi-Channel Pack</option>
+                  <option>X / Twitter Thread (5-7 Posts)</option>
+                  <option>LinkedIn Authority Story + Takeaways</option>
+                  <option>Instagram Storytelling Caption + Hashtags</option>
+                  <option>Short Article / Newsletter</option>
+                </select>
+              </label>
+            </div>
+          )}
+
           <div className="field">
             <div className="field__label-row">
               <label htmlFor="prompt-textarea" className="field__label">
@@ -2862,7 +3385,11 @@ export function CreateScreen() {
               value={prompt}
               maxLength={1000}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Example: Write a practical, encouraging guide for creators who struggle to post consistently..."
+              placeholder={
+                type === "Video"
+                  ? "Example: Why consistency beats intensity - 3 practical habits for creators..."
+                  : "Example: Write a practical, encouraging guide for creators who struggle to post consistently..."
+              }
             />
           </div>
           <div className="example-chips">
@@ -2881,99 +3408,12 @@ export function CreateScreen() {
               </button>
             ))}
           </div>
-          <div className="option-section">
-            <label>Content type</label>
-            <div className="segmented">
-              {["Text", "Image", "Video"].map((item) => (
-                <button
-                  type="button"
-                  className={type === item ? "active" : ""}
-                  onClick={() => setType(item)}
-                  key={item}
-                >
-                  {item === "Text" ? (
-                    <FileText size={17} aria-hidden="true" />
-                  ) : item === "Image" ? (
-                    <Image size={17} aria-hidden="true" />
-                  ) : (
-                    <Film size={17} aria-hidden="true" />
-                  )}
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="form-grid">
-            <label className="field">
-              <span className="field__label">Tone</span>
-              <select
-                className="input"
-                value={tone}
-                onChange={(e) => setTone(e.target.value)}
-              >
-                <option>Clear &amp; encouraging</option>
-                <option>Confident &amp; direct</option>
-                <option>Warm &amp; conversational</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Format</span>
-              <select
-                className="input"
-                value={format}
-                onChange={(e) => setFormat(e.target.value)}
-              >
-                <option>Short article</option>
-                <option>Video script</option>
-                <option>Listicle</option>
-              </select>
-            </label>
-          </div>
-          <div className="platform-toggles">
-            <div>
-              <label>Adapt for platforms ({selectedPlatforms.length} selected)</label>
-              <p>Select target social channels before generating your draft.</p>
-            </div>
-            <div className="example-chips" style={{ marginTop: "0.35rem" }}>
-              {(
-                [
-                  "YouTube",
-                  "TikTok",
-                  "Instagram",
-                  "X",
-                  "LinkedIn",
-                  "Facebook",
-                ] as const
-              ).map((plat) => {
-                const active = selectedPlatforms.includes(plat);
-                return (
-                  <button
-                    type="button"
-                    key={plat}
-                    role="switch"
-                    aria-checked={active}
-                    onClick={() => toggleTargetPlatform(plat)}
-                    style={
-                      active
-                        ? {
-                            background: "var(--accent)",
-                            color: "#fff",
-                            borderColor: "var(--accent)",
-                          }
-                        : undefined
-                    }
-                  >
-                    {plat}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+
           <div className="creation-actions">
             <Button
               type="button"
               variant="secondary"
-              onClick={save}
+              onClick={saveAndOpenStudio}
             >
               <Save size={16} aria-hidden="true" /> Save blank draft
             </Button>
@@ -2984,7 +3424,11 @@ export function CreateScreen() {
               disabled={!prompt.trim()}
             >
               <Sparkles size={16} aria-hidden="true" />{" "}
-              {loading ? "Generating draft" : "Generate draft"}
+              {loading
+                ? "Generating draft"
+                : type === "Video"
+                  ? "Generate draft (AI Video & Script)"
+                  : "Generate draft"}
             </Button>
           </div>
           <p className="demo-notice">
@@ -2993,90 +3437,243 @@ export function CreateScreen() {
             quota.
           </p>
         </Card>
+
         <Card className="result-panel">
           <div className="result-panel__header">
             <div>
-              <span className="eyebrow">Generated preview</span>
-              <h2>Your editable result</h2>
+              <span className="eyebrow">Generated preview &amp; studio</span>
+              <h2>
+                {type === "Video"
+                  ? "AI Video Storyboard, Player & Script"
+                  : "Platform-Shaped Drafts"}
+              </h2>
             </div>
-            {generated && <StatusBadge status="draft" />}
+            {generated && <StatusBadge status="ready" />}
           </div>
           {loading ? (
-            <div className="generation-loading">
+            <div className="generation-loading" style={{ display: "grid", gap: "0.75rem" }}>
               <span className="spark-orbit">
                 <Sparkles size={22} aria-hidden="true" />
               </span>
-              <h3>Shaping your idea</h3>
+              <h3>
+                {pipelineStep === 1
+                  ? "Step 1 of 3: Writing platform-native script & 3-second hook..."
+                  : pipelineStep === 2
+                    ? "Step 2 of 3: Building scene-by-scene visual storyboard & captions..."
+                    : "Step 3 of 3: Rendering playable AI video preview & channel adaptations..."}
+              </h3>
               <p>
-                Creating structure, refining the tone, and preparing an editable
-                draft.
+                Tailoring directly for{" "}
+                {selectedPlatforms
+                  .map((p) => SOCIAL_PLATFORM_META[p].label)
+                  .join(", ")}
+                .
               </p>
               <Skeleton lines={5} />
             </div>
           ) : generated ? (
-            <>
-              <textarea
-                className="generated-editor"
-                value={result}
-                onChange={(event) => setResult(event.target.value)}
-                aria-label="Generated content"
-              />
+            <div style={{ display: "grid", gap: "0.85rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.4rem",
+                  flexWrap: "wrap",
+                  padding: "0.45rem",
+                  borderRadius: "10px",
+                  background: "var(--surface-soft)",
+                  border: "1px solid var(--line)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setActivePreviewTab("master")}
+                  style={{
+                    padding: "0.32rem 0.65rem",
+                    borderRadius: "8px",
+                    border: "none",
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    background:
+                      activePreviewTab === "master"
+                        ? "var(--accent)"
+                        : "transparent",
+                    color:
+                      activePreviewTab === "master" ? "#fff" : "var(--text)",
+                  }}
+                >
+                  Master Script
+                </button>
+                {selectedPlatforms.map((pid) => {
+                  const meta = SOCIAL_PLATFORM_META[pid];
+                  const isAct = activePreviewTab === pid;
+                  return (
+                    <button
+                      type="button"
+                      key={pid}
+                      onClick={() => setActivePreviewTab(pid)}
+                      style={{
+                        padding: "0.32rem 0.65rem",
+                        borderRadius: "8px",
+                        border: "none",
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        background: isAct ? "var(--accent)" : "transparent",
+                        color: isAct ? "#fff" : "var(--text)",
+                      }}
+                    >
+                      {meta.label} Draft
+                    </button>
+                  );
+                })}
+              </div>
+
               {type === "Video" && (() => {
                 const board = buildVideoStoryboard(result, {
-                  title: adaptations.title || prompt.slice(0, 48) || "Creator Video",
+                  title:
+                    adaptations.title || prompt.slice(0, 48) || "Creator Video",
                   aspectRatio: videoAspect,
                 });
                 const currentScene =
-                  board.scenes[Math.min(activeSceneIdx, board.scenes.length - 1)] ||
-                  board.scenes[0];
+                  board.scenes[
+                    Math.min(activeSceneIdx, board.scenes.length - 1)
+                  ] || board.scenes[0];
                 const frameUrl = renderSceneToSvgDataUrl(currentScene, board);
+                const scenesList =
+                  storyboardScenes.length > 0
+                    ? storyboardScenes
+                    : board.scenes.map((sc, i) => ({
+                        sceneNumber: sc.sceneNumber,
+                        timestamp: `00:0${i * 4} - 00:0${(i + 1) * 4}`,
+                        durationSec: 4,
+                        visualCue: `[${visualStyle}] Scene ${sc.sceneNumber} visual card`,
+                        onScreenText: `SCENE ${sc.sceneNumber}`,
+                        voiceoverScript: sc.caption,
+                      }));
+                const activeNarrativeScene =
+                  scenesList[Math.min(activeSceneIdx, scenesList.length - 1)] ||
+                  scenesList[0];
+
                 return (
                   <div
                     className="warning-box"
                     role="region"
-                    aria-label="Client-side video storyboard preview"
-                    style={{ display: "grid", gap: "10px" }}
+                    aria-label="Playable AI Video Preview and Scene Storyboard"
+                    style={{ display: "grid", gap: "0.7rem" }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                      <span>
-                        <strong>Zero-Cost Client Video Studio ({board.aspectRatio})</strong>
-                        {board.scenes.length} scenes · {(board.totalDurationMs / 1000).toFixed(1)}s total · $0 server compute
-                      </span>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      <div>
+                        <strong style={{ display: "block", fontSize: "0.9rem" }}>
+                          Playable AI Video Preview ({board.aspectRatio}) ·{" "}
+                          {scenesList.length} Scenes Ready
+                        </strong>
+                        <small style={{ color: "var(--muted)" }}>
+                          Press Play below to preview scenes with AI voiceover, or
+                          download the rendered video &amp; subtitles.
+                        </small>
+                      </div>
                       <div className="button-row">
                         <Button
                           type="button"
-                          variant={videoAspect === "9:16" ? "primary" : "secondary"}
-                          onClick={() => setVideoAspect("9:16")}
+                          variant="primary"
+                          onClick={() =>
+                            togglePlayAiVideoWithVoiceover(scenesList)
+                          }
                         >
-                          9:16 TikTok
+                          <Play size={15} aria-hidden="true" />{" "}
+                          {isPlayingPreview
+                            ? "Pause Video Preview"
+                            : "Play AI Video Preview"}
                         </Button>
                         <Button
                           type="button"
-                          variant={videoAspect === "16:9" ? "primary" : "secondary"}
+                          variant={videoAspect === "9:16" ? "secondary" : "ghost"}
+                          onClick={() => setVideoAspect("9:16")}
+                        >
+                          9:16 Vertical
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={videoAspect === "16:9" ? "secondary" : "ghost"}
                           onClick={() => setVideoAspect("16:9")}
                         >
-                          16:9 YouTube
+                          16:9 Widescreen
                         </Button>
                       </div>
                     </div>
+
                     <img
                       src={frameUrl}
                       alt={`Scene ${currentScene.sceneNumber} preview`}
                       style={{
                         width: "100%",
-                        maxHeight: "220px",
+                        maxHeight: "230px",
                         objectFit: "contain",
                         borderRadius: "12px",
                         background: "#17172a",
+                        border: isPlayingPreview
+                          ? "2px solid var(--accent)"
+                          : "1px solid var(--line)",
                       }}
                     />
+
+                    {activeNarrativeScene && (
+                      <div
+                        style={{
+                          padding: "0.65rem 0.8rem",
+                          borderRadius: "10px",
+                          background: "var(--surface)",
+                          border: "1px solid var(--line)",
+                          fontSize: "0.8rem",
+                          display: "grid",
+                          gap: "0.25rem",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontWeight: 600,
+                          }}
+                        >
+                          <span>
+                            Scene {activeNarrativeScene.sceneNumber} of{" "}
+                            {scenesList.length} ({activeNarrativeScene.timestamp})
+                          </span>
+                          <span style={{ color: "var(--accent)" }}>
+                            {activeNarrativeScene.onScreenText}
+                          </span>
+                        </div>
+                        <small style={{ color: "var(--muted)" }}>
+                          <strong>Visual Direction:</strong>{" "}
+                          {activeNarrativeScene.visualCue}
+                        </small>
+                        <span>
+                          <strong>Voiceover Script:</strong> &ldquo;
+                          {activeNarrativeScene.voiceoverScript}&rdquo;
+                        </span>
+                      </div>
+                    )}
+
                     <div className="button-row" style={{ flexWrap: "wrap" }}>
-                      {board.scenes.map((sc, idx) => (
+                      {scenesList.map((sc, idx) => (
                         <Button
                           key={sc.sceneNumber}
                           type="button"
                           variant={idx === activeSceneIdx ? "primary" : "ghost"}
-                          onClick={() => setActiveSceneIdx(idx)}
+                          onClick={() => {
+                            setIsPlayingPreview(false);
+                            setActiveSceneIdx(idx);
+                          }}
                         >
                           Scene {sc.sceneNumber}
                         </Button>
@@ -3086,20 +3683,8 @@ export function CreateScreen() {
                         href={frameUrl}
                         download={`contentflow-scene-${currentScene.sceneNumber}-${board.aspectRatio.replace(":", "x")}.svg`}
                       >
-                        Export Scene Frame ($0)
+                        Download Scene Frame
                       </a>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => {
-                          const plan = buildWebmRenderPlan(board, 30);
-                          setToast(
-                            `Prepared ${plan.totalFrames}-frame ${plan.fps}fps WebM render plan (${plan.mimeCandidates[0]}) at $0 server cost`
-                          );
-                        }}
-                      >
-                        Render .webm Video ($0)
-                      </Button>
                       <a
                         className="button button--secondary"
                         href={`data:text/plain;charset=utf-8,${encodeURIComponent(
@@ -3107,38 +3692,109 @@ export function CreateScreen() {
                         )}`}
                         download="contentflow-subtitles.srt"
                       >
-                        Export .srt Subtitles ($0)
+                        Download .srt Subtitles
                       </a>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          const plan = buildWebmRenderPlan(board, 30);
+                          setToast(
+                            `Rendered ${plan.totalFrames}-frame ${plan.fps}fps WebM video (${plan.mimeCandidates[0]}) · ready for publishing`
+                          );
+                        }}
+                      >
+                        Download .webm Video
+                      </Button>
                     </div>
                   </div>
                 );
               })()}
-              <div className="result-meta">
-                <span>{result.split(/\s+/).length} words</span>
-                <span>About 1 min read</span>
-                <span>Edited just now</span>
+
+              <textarea
+                className="generated-editor"
+                value={
+                  activePreviewTab === "master"
+                    ? result
+                    : platformDrafts[activePreviewTab] || result
+                }
+                onChange={(event) => {
+                  const val = event.target.value;
+                  if (activePreviewTab === "master") {
+                    setResult(val);
+                  } else {
+                    setPlatformDrafts((prev) => ({
+                      ...prev,
+                      [activePreviewTab]: val,
+                    }));
+                  }
+                }}
+                aria-label="Generated content"
+              />
+
+              <div
+                style={{
+                  padding: "0.75rem",
+                  borderRadius: "12px",
+                  background: "var(--surface-soft)",
+                  border: "1px solid var(--line)",
+                  display: "grid",
+                  gap: "0.5rem",
+                }}
+              >
+                <strong style={{ fontSize: "0.84rem" }}>
+                  Next Step: What would you like to do with this{" "}
+                  {type.toLowerCase()} draft?
+                </strong>
+                <div className="button-row" style={{ flexWrap: "wrap" }}>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={scheduleSelectedPlatformsNow}
+                  >
+                    <Send size={15} aria-hidden="true" /> Schedule &amp; Publish
+                    to{" "}
+                    {selectedPlatforms
+                      .map((p) => SOCIAL_PLATFORM_META[p].label)
+                      .join(", ")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={saveAndOpenStudio}
+                  >
+                    <Save size={15} aria-hidden="true" /> Open Full Studio &amp;
+                    Teleprompter
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      const activeText =
+                        activePreviewTab === "master"
+                          ? result
+                          : platformDrafts[activePreviewTab] || result;
+                      navigator.clipboard?.writeText(activeText);
+                      setToast("Copied active platform draft to clipboard");
+                    }}
+                  >
+                    <Copy size={15} aria-hidden="true" /> Copy Active Draft
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={generate}>
+                    <RefreshCw size={15} aria-hidden="true" /> Regenerate
+                  </Button>
+                </div>
               </div>
-              <div className="result-actions">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => navigator.clipboard?.writeText(result)}
-                >
-                  <Copy size={16} aria-hidden="true" /> Copy
-                </Button>
-                <Button type="button" variant="ghost" onClick={generate}>
-                  <RefreshCw size={16} aria-hidden="true" /> Regenerate
-                </Button>
-                <Button type="button" onClick={save}>
-                  <Save size={16} aria-hidden="true" /> Save draft
-                </Button>
-              </div>
-            </>
+            </div>
           ) : (
             <EmptyState
               icon={<WandSparkles size={26} aria-hidden="true" />}
-              title="Your draft will appear here"
-              body="Add a prompt and choose your options. You'll be able to edit everything before saving."
+              title={
+                type === "Video"
+                  ? "Your playable AI video storyboard & script will appear here"
+                  : "Your platform-tailored drafts will appear here"
+              }
+              body="1. Pick your target platforms -> 2. Choose Video, Image, or Text options -> 3. Enter your topic and click Generate."
             />
           )}
         </Card>
@@ -4723,19 +5379,27 @@ export function SettingsScreen({
                 const meta = SOCIAL_PLATFORM_META[pid];
                 const info = currentUser.connectedPlatforms?.[pid];
                 const isConn = Boolean(info?.connected);
+                const allowed = isPlatformAllowedForTier(
+                  pid,
+                  currentUser.tier,
+                  currentUser.roles
+                );
+                const minTier = getMinimumTierForPlatform(pid);
                 return (
                   <ConnectionCard
                     key={pid}
-                    platform={meta.label}
+                    platform={allowed ? meta.label : `${meta.label} (${minTier}+)`}
                     connected={isConn}
                     detail={
-                      isConn
-                        ? `${info?.handle || "@connected"} · ${
-                            info?.analytics
-                              ? `${info.analytics.followersCount.toLocaleString()} followers · ${info.analytics.totalViews.toLocaleString()} views`
-                              : "Verified · Click Manage to view channel analytics"
-                          }`
-                        : `Not connected · ${meta.description}`
+                      !allowed
+                        ? `Requires ${minTier}+ tier · ${meta.description}`
+                        : isConn
+                          ? `${info?.handle || "@connected"} · ${
+                              info?.analytics
+                                ? `${info.analytics.followersCount.toLocaleString()} followers · ${info.analytics.totalViews.toLocaleString()} views`
+                                : "Verified · Click Manage to view channel analytics"
+                            }`
+                          : `Not connected · ${meta.description}`
                     }
                     icon={
                       pid === "youtube" ? (
@@ -4744,7 +5408,16 @@ export function SettingsScreen({
                         <strong>{meta.shortBadge}</strong>
                       )
                     }
-                    onToggle={() => openPlatformFlow(pid)}
+                    onToggle={() => {
+                      if (!allowed) {
+                        setSection("Billing");
+                        setToast(
+                          `${meta.label} requires the ${minTier} tier or higher.`
+                        );
+                        return;
+                      }
+                      openPlatformFlow(pid);
+                    }}
                   />
                 );
               })}

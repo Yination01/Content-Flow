@@ -75,6 +75,53 @@ export function resolveEffectiveTier(
   return tier;
 }
 
+export type GatedSocialPlatform =
+  | "youtube"
+  | "tiktok"
+  | "instagram"
+  | "x"
+  | "linkedin"
+  | "facebook";
+
+export function getMinimumTierForPlatform(
+  platform: GatedSocialPlatform
+): SubscriptionTier {
+  if (platform === "youtube" || platform === "tiktok") {
+    return "FREE";
+  }
+  if (platform === "instagram" || platform === "x") {
+    return "CREATOR";
+  }
+  return "PRO";
+}
+
+export function getAllowedPlatformsForTier(
+  tier: SubscriptionTier | string,
+  roles?: readonly string[]
+): GatedSocialPlatform[] {
+  const normalizedTier = (
+    ["FREE", "CREATOR", "PRO", "AGENCY"].includes(String(tier).toUpperCase())
+      ? String(tier).toUpperCase()
+      : "FREE"
+  ) as SubscriptionTier;
+  const effective = resolveEffectiveTier(normalizedTier, roles);
+  if (effective === "PRO" || effective === "AGENCY") {
+    return ["youtube", "tiktok", "instagram", "x", "linkedin", "facebook"];
+  }
+  if (effective === "CREATOR") {
+    return ["youtube", "tiktok", "instagram", "x"];
+  }
+  return ["youtube", "tiktok"];
+}
+
+export function isPlatformAllowedForTier(
+  platform: GatedSocialPlatform,
+  tier: SubscriptionTier | string,
+  roles?: readonly string[]
+): boolean {
+  return getAllowedPlatformsForTier(tier, roles).includes(platform);
+}
+
 export function checkUserQuota(
   tier: SubscriptionTier,
   usage: UsageSnapshot,
