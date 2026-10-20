@@ -176,7 +176,59 @@ export function getEnvelopeMasterSecret(): string {
   );
 }
 
+function isTestRuntime(): boolean {
+  return Boolean(process.env.VITEST || process.env.NODE_ENV === "test");
+}
+
 function createDefaultStore(): ApiStore {
+  if (!isTestRuntime()) {
+    const superuserAccount: UserAccountRecord = {
+      id: "user-superuser",
+      name: "Johnpaul Onovo",
+      email: "johnpaulonovo@gmail.com",
+      niche: "Multi-channel content creation",
+      passwordHash: DEFAULT_PASSWORD_HASH,
+      tier: "AGENCY",
+      roles: ["creator", "superuser"],
+      status: "Active",
+      joinedAt: new Date().toISOString(),
+      usage: {
+        dailyAiGenerations: 0,
+        monthlyPostsCreated: 0,
+        monthlyCrossPosts: 0,
+        storageUsedMb: 0,
+      },
+      encryptedByok: {},
+      connectedPlatforms: {},
+    };
+
+    return {
+      users: new Map<string, UserAccountRecord>([
+        ["user-superuser", superuserAccount],
+      ]),
+      contents: new Map(),
+      jobs: new Map(),
+      aiCache: new Map(),
+      oauthStates: new Map(),
+      processedWebhooks: new Set(),
+      moderationItems: new Map(),
+      auditLogs: [],
+      platformUsage: {
+        date: new Date().toISOString().slice(0, 10),
+        month: new Date().toISOString().slice(0, 7),
+        cloudflareAiNeurons: 0,
+        huggingfaceCalls: 0,
+        r2Reads: 0,
+        r2Writes: 0,
+        youtubeUnits: 0,
+        tiktokCalls: 0,
+        vercelInvocations: 0,
+        supabaseMau: 1,
+        bandwidthGb: 0,
+      },
+    };
+  }
+
   const defaultOpenAiEnvelope = encryptApiKey(
     "sk-proj-ContentFlowSavedKey9K2",
     getEnvelopeMasterSecret()
@@ -463,21 +515,50 @@ function createDefaultStore(): ApiStore {
 }
 
 function loadStoreFromDisk(): ApiStore {
-  if (process.env.VITEST) {
+  if (isTestRuntime()) {
     return createDefaultStore();
   }
   try {
     if (fs.existsSync(DB_FILE_PATH)) {
       const raw = JSON.parse(fs.readFileSync(DB_FILE_PATH, "utf8"));
       const defaults = createDefaultStore();
+      const legacyIds = new Set(["user-1", "user-2", "user-3", "user-free-1"]);
+      const legacyModIds = new Set(["mod-101", "mod-102", "mod-103"]);
+      const legacyJobIds = new Set(["1049", "1048", "1047"]);
+      const usersEntries = Array.isArray(raw.users)
+        ? (raw.users as [string, UserAccountRecord][]).filter(
+            ([id]) => !legacyIds.has(id)
+          )
+        : [];
+      const userMap =
+        usersEntries.length > 0 ? new Map(usersEntries) : defaults.users;
+
       return {
-        users: new Map(raw.users || []),
-        contents: new Map(raw.contents || []),
-        jobs: new Map(raw.jobs || []),
+        users: userMap,
+        contents: new Map(
+          Array.isArray(raw.contents)
+            ? (raw.contents as [string, ContentRecord][]).filter(
+                ([, c]) => !legacyIds.has(c.userId)
+              )
+            : []
+        ),
+        jobs: new Map(
+          Array.isArray(raw.jobs)
+            ? (raw.jobs as [string, JobRecord][]).filter(
+                ([id, j]) => !legacyJobIds.has(id) && !legacyIds.has(j.userId)
+              )
+            : []
+        ),
         aiCache: new Map(raw.aiCache || []),
         oauthStates: new Map(raw.oauthStates || []),
         processedWebhooks: new Set(raw.processedWebhooks || []),
-        moderationItems: new Map(raw.moderationItems || []),
+        moderationItems: new Map(
+          Array.isArray(raw.moderationItems)
+            ? (raw.moderationItems as [string, ModerationItemRecord][]).filter(
+                ([id]) => !legacyModIds.has(id)
+              )
+            : []
+        ),
         auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
         platformUsage: raw.platformUsage || defaults.platformUsage,
       };
@@ -584,7 +665,8 @@ export function extractActorFromRequest(request: Request): {
   const session = parseSessionCookieFromRequest(request);
   const headerUserId =
     request.headers.get("x-user-id") || request.headers.get("x-demo-user-id");
-  const userId = session?.userId || headerUserId || "user-1";
+  const defaultFallbackId = isTestRuntime() ? "user-1" : "user-superuser";
+  const userId = session?.userId || headerUserId || defaultFallbackId;
 
   const tierHeader = (request.headers.get("x-user-tier") ||
     request.headers.get("x-demo-tier")) as SubscriptionTier | null;

@@ -144,6 +144,7 @@ type AppState = {
   updateCurrentUser: (partial: Partial<CurrentUserProfile>) => void;
   refreshUser: () => Promise<void>;
   logoutUser: () => Promise<void>;
+  isLoggedOut: boolean;
 };
 
 const StateContext = createContext<AppState | null>(null);
@@ -153,6 +154,7 @@ export function StateProvider({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [currentUser, setCurrentUser] =
     useState<CurrentUserProfile>(DEFAULT_USER_PROFILE);
+  const [isLoggedOut, setIsLoggedOut] = useState(false);
 
   function addJobs(platforms: string[], schedule: string, title?: string) {
     const additions = platforms.map((platform, index) => ({
@@ -315,6 +317,12 @@ export function StateProvider({ children }: { children: ReactNode }) {
 
   const updateCurrentUser = useCallback(
     (partial: Partial<CurrentUserProfile>) => {
+      setIsLoggedOut(false);
+      try {
+        window.sessionStorage.removeItem("cf_logged_out");
+      } catch {
+        // Ignore
+      }
       setCurrentUser((prev) => {
         const email = partial.email ?? prev.email;
         const name = normalizeDisplayName(partial.name ?? prev.name, email);
@@ -338,6 +346,13 @@ export function StateProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
+      if (
+        typeof window !== "undefined" &&
+        window.sessionStorage.getItem("cf_logged_out") === "1"
+      ) {
+        setIsLoggedOut(true);
+        return;
+      }
       const res = await fetch("/api/v1/auth/me", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
@@ -357,6 +372,17 @@ export function StateProvider({ children }: { children: ReactNode }) {
           ) {
             return;
           }
+          // Merge server user with any locally persisted connectedPlatforms & maskedKeys so serverless cold starts never wipe connected channels
+          if (stored && stored.email === data.user.email) {
+            data.user.connectedPlatforms = {
+              ...(stored.connectedPlatforms || {}),
+              ...(data.user.connectedPlatforms || {}),
+            };
+            data.user.maskedKeys = {
+              ...(stored.maskedKeys || {}),
+              ...(data.user.maskedKeys || {}),
+            };
+          }
           applyServerUser(data.user);
         }
       }
@@ -366,14 +392,18 @@ export function StateProvider({ children }: { children: ReactNode }) {
   }, [applyServerUser]);
 
   const logoutUser = useCallback(async () => {
+    setIsLoggedOut(true);
+    setHasContent(false);
+    setJobs([]);
     try {
-      await fetch("/api/v1/auth/logout", { method: "POST" });
+      window.sessionStorage.setItem("cf_logged_out", "1");
+      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(JOBS_STORAGE_KEY);
     } catch {
       // Ignore
     }
     try {
-      window.localStorage.removeItem(STORAGE_KEY);
-      window.localStorage.removeItem(JOBS_STORAGE_KEY);
+      await fetch("/api/v1/auth/logout", { method: "POST" });
     } catch {
       // Ignore
     }
@@ -381,6 +411,10 @@ export function StateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
+      if (window.sessionStorage.getItem("cf_logged_out") === "1") {
+        setIsLoggedOut(true);
+        return;
+      }
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as CurrentUserProfile;
@@ -425,6 +459,7 @@ export function StateProvider({ children }: { children: ReactNode }) {
         updateCurrentUser,
         refreshUser,
         logoutUser,
+        isLoggedOut,
       }}
     >
       {children}
