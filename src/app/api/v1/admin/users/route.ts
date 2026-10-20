@@ -15,6 +15,10 @@ import {
   getApiStore,
   persistApiStore,
 } from "@/lib/server/store";
+import {
+  fetchUsersFromSupabaseRest,
+  syncUserToSupabaseRest,
+} from "@/lib/server/supabase-sync";
 
 export async function GET(request: Request) {
   const actor = extractActorFromRequest(request);
@@ -31,6 +35,34 @@ export async function GET(request: Request) {
     Math.max(1, Number(url.searchParams.get("limit") || 20))
   );
   const store = getApiStore();
+  const remoteUsers = await fetchUsersFromSupabaseRest();
+  for (const ru of remoteUsers) {
+    const existing = Array.from(store.users.values()).find(
+      (u) => u.email.toLowerCase() === ru.email.toLowerCase()
+    );
+    if (!existing) {
+      store.users.set(ru.id, {
+        id: ru.id,
+        name: ru.name,
+        email: ru.email,
+        niche: ru.niche,
+        passwordHash: "",
+        tier: ru.tier,
+        roles: ru.roles,
+        status: (ru.status as "Active" | "Review" | "Suspended") || "Active",
+        joinedAt: ru.joinedAt,
+        usage: {
+          dailyAiGenerations: 0,
+          monthlyPostsCreated: 0,
+          monthlyCrossPosts: 0,
+          storageUsedMb: 0,
+        },
+        encryptedByok: {},
+        connectedPlatforms: {},
+      });
+    }
+  }
+
   const users = Array.from(store.users.values())
     .slice(0, limit)
     .map((u) => ({
@@ -46,6 +78,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     users,
+    items: users,
     pagination: { limit, count: users.length, total: store.users.size },
   });
 }
@@ -139,6 +172,17 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString(),
     });
     persistApiStore();
+
+    await syncUserToSupabaseRest({
+      id: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+      niche: newUser.niche,
+      tier: newUser.tier,
+      roles: newUser.roles,
+      status: newUser.status,
+      joinedAt: newUser.joinedAt,
+    });
 
     return NextResponse.json(
       {

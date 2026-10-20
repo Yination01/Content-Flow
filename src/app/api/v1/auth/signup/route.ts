@@ -8,6 +8,10 @@ import {
   signSessionToken,
 } from "@/lib/server/auth";
 import { getApiStore, persistApiStore } from "@/lib/server/store";
+import {
+  supabaseSignUpWithEmail,
+  syncUserToSupabaseRest,
+} from "@/lib/server/supabase-sync";
 
 export async function POST(request: Request) {
   try {
@@ -73,6 +77,23 @@ export async function POST(request: Request) {
 
     store.users.set(userId, newUser);
     persistApiStore();
+
+    void supabaseSignUpWithEmail({
+      email: newUser.email,
+      password,
+      name: newUser.name,
+      niche: newUser.niche,
+    });
+    void syncUserToSupabaseRest({
+      id: newUser.id,
+      email: newUser.email,
+      name: newUser.name,
+      niche: newUser.niche,
+      tier: newUser.tier,
+      roles: newUser.roles,
+      status: newUser.status,
+      joinedAt: newUser.joinedAt,
+    });
 
     const token = signSessionToken({
       userId,
