@@ -39,6 +39,7 @@ import {
   LockKeyhole,
   Menu,
   MessageSquareText,
+  Moon,
   MoreHorizontal,
   PenLine,
   Play,
@@ -50,6 +51,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Sun,
   Trash2,
   TrendingUp,
   UploadCloud,
@@ -355,10 +357,19 @@ export function LandingScreen() {
             type="button"
             className="button button--secondary"
             aria-label="Toggle theme"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             onClick={toggleTheme}
             style={{ minHeight: "38px", padding: "0 11px", fontSize: "0.75rem" }}
           >
-            {theme === "dark" ? "Light" : "Dark"}
+            {theme === "dark" ? (
+              <>
+                <Sun size={15} aria-hidden="true" /> Light
+              </>
+            ) : (
+              <>
+                <Moon size={15} aria-hidden="true" /> Dark
+              </>
+            )}
           </button>
           <Link className="button button--ghost" href="/dashboard">
             Dashboard
@@ -1344,16 +1355,21 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (active && Array.isArray(data?.items)) {
-          setLiveNotices(data.items);
-          setUnreadCount(data.items.length);
+        const list = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.notices)
+            ? data.notices
+            : null;
+        if (active && list) {
+          setLiveNotices(list);
+          setUnreadCount(list.length);
         }
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, []);
+  }, [notificationsOpen]);
 
   useEffect(() => {
     const checkLoggedOut = () => {
@@ -1538,24 +1554,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
             >
               <LockKeyhole size={15} aria-hidden="true" /> Security &amp; 2FA
             </Link>
-            {isSuper && (
-              <Link
-                href="/admin"
-                onClick={() => setProfileMenuOpen(false)}
-                style={{
-                  padding: "0.42rem 0.55rem",
-                  borderRadius: "8px",
-                  color: "#c4b5fd",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                }}
-              >
-                <ShieldCheck size={15} aria-hidden="true" /> Admin Control
-              </Link>
-            )}
             <button
               type="button"
               onClick={handleSignOut}
@@ -1659,6 +1657,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               type="button"
               className="button button--secondary"
               aria-label="Toggle theme"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               onClick={toggleTheme}
               style={{
                 minHeight: "36px",
@@ -1666,7 +1665,15 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
                 fontSize: "0.75rem",
               }}
             >
-              {theme === "dark" ? "Light mode" : "Dark mode"}
+              {theme === "dark" ? (
+                <>
+                  <Sun size={15} aria-hidden="true" /> Light
+                </>
+              ) : (
+                <>
+                  <Moon size={15} aria-hidden="true" /> Dark
+                </>
+              )}
             </button>
             <div ref={notificationsRef} style={{ position: "relative" }}>
               <button
@@ -6040,9 +6047,19 @@ export function AdminScreen() {
           <button
             type="button"
             className="button button--secondary"
+            aria-label="Toggle theme"
+            title={lightMode ? "Switch to dark workshop" : "Switch to light mode"}
             onClick={() => setLightMode((prev) => !prev)}
           >
-            {lightMode ? "Dark Workshop" : "Light Mode"}
+            {lightMode ? (
+              <>
+                <Moon size={15} aria-hidden="true" /> Dark Workshop
+              </>
+            ) : (
+              <>
+                <Sun size={15} aria-hidden="true" /> Light Mode
+              </>
+            )}
           </button>
           <Link href="/dashboard" className="button button--secondary">
             ← Back to Dashboard
@@ -6054,17 +6071,6 @@ export function AdminScreen() {
       </header>
       <div className="admin-body">
         <aside className="admin-sidebar" aria-label="Admin control center">
-          <Link
-            href="/dashboard"
-            className="button button--secondary"
-            style={{
-              marginBottom: "0.75rem",
-              justifyContent: "flex-start",
-              textDecoration: "none",
-            }}
-          >
-            ← Back to Dashboard
-          </Link>
           <p>Workshop (6-Tab Spec)</p>
           {poiseAdminTabs.map((item) => (
             <button
@@ -6089,42 +6095,8 @@ export function AdminScreen() {
               {item}
             </button>
           ))}
-          <p style={{ marginTop: "0.85rem" }}>Direct Views</p>
-          {legacyAdminTabs.map((item) => (
-            <button
-              type="button"
-              className={tab === item ? "active" : ""}
-              onClick={() => setTab(item)}
-              key={item}
-            >
-              {item === "Users" ? (
-                <Users size={18} aria-hidden="true" />
-              ) : item === "Quotas" ? (
-                <Zap size={18} aria-hidden="true" />
-              ) : item === "Moderation" ? (
-                <ShieldCheck size={18} aria-hidden="true" />
-              ) : (
-                <LockKeyhole size={18} aria-hidden="true" />
-              )}
-              {item}
-            </button>
-          ))}
         </aside>
         <main className="admin-main">
-          <div className="poise-tab-strip" role="tablist" aria-label="Poise Admin 6 Tabs">
-            {poiseAdminTabs.map((item) => (
-              <button
-                key={item}
-                type="button"
-                role="tab"
-                aria-selected={tab === item}
-                className={`poise-tab-btn ${tab === item ? "active" : ""}`}
-                onClick={() => setTab(item)}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
           <PageHeader
             eyebrow="Protected role · Server-verified Admin"
             title={tab}
@@ -6468,21 +6440,21 @@ export function AdminScreen() {
                       "Zero-Budget Quota Enforcer",
                       `${quotaCards[0]?.[1] || "0 / 8,000 neurons"} · Hard-stop at 100%`,
                       "neutral",
-                      "Quotas",
+                      "System",
                     ],
                     [
                       `${moderationItems.length} moderation item(s) in queue`,
                       moderationItems.length === 0
                         ? "All creator drafts pass automated safety & FTC checks"
-                        : "Review flagged items in Moderation tab",
+                        : "Review flagged items in System tab",
                       moderationItems.length > 0 ? "warning" : "neutral",
-                      "Moderation",
+                      "System",
                     ],
                     [
                       `Immutable Audit Trail (${auditLogs.length} events)`,
                       "Every tier change, 2FA action, and quota reset is logged",
                       "neutral",
-                      "Audit & System",
+                      "System",
                     ],
                   ].map(([title, body, state, targetTab]) => (
                     <button
