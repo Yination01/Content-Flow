@@ -690,7 +690,7 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
       } else {
         setMagicLinkSentUrl(data.magicLinkUrl || "");
         setMagicOtpExpected(data.otpCode || "");
-        setMagicOtpInput(data.otpCode || "");
+        setMagicOtpInput("");
       }
     } catch {
       setError("Unable to reach magic link service.");
@@ -1117,14 +1117,16 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
                 <div className="warning-box" role="status">
                   <Sparkles size={16} aria-hidden="true" />
                   <span>
-                    <strong>6-Digit Security Code Generated: {magicOtpExpected}</strong>
-                    Enter the 6-digit verification code below or click{" "}
-                    <strong>Verify Code &amp; Sign In</strong>.
+                    <strong>Magic link &amp; verification code dispatched</strong>
+                    Check your inbox for {magicEmail} and enter the 6-digit
+                    verification code below, or click the sign-in link in your
+                    email.
                   </span>
                 </div>
                 <Field
                   label="6-Digit Security Verification Code"
                   type="text"
+                  placeholder="Enter 6-digit code from email"
                   value={magicOtpInput}
                   onChange={(e) => setMagicOtpInput(e.target.value)}
                 />
@@ -1147,14 +1149,40 @@ const appNavigation = [
 export function WorkspaceShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, logoutUser } = useAppState();
+  const { currentUser, logoutUser, isLoggedOut } = useAppState();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
-  const [unreadCount, setUnreadCount] = useState(2);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [shellToast, setShellToast] = useState("");
+
+  useEffect(() => {
+    const checkLoggedOut = () => {
+      try {
+        if (
+          isLoggedOut ||
+          window.sessionStorage.getItem("cf_logged_out") === "1"
+        ) {
+          router.replace("/login");
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    checkLoggedOut();
+    window.addEventListener("pageshow", checkLoggedOut);
+    window.addEventListener("popstate", checkLoggedOut);
+    return () => {
+      window.removeEventListener("pageshow", checkLoggedOut);
+      window.removeEventListener("popstate", checkLoggedOut);
+    };
+  }, [isLoggedOut, router]);
+
+  if (isLoggedOut) {
+    return null;
+  }
 
   function isActive(href: string) {
     if (href === "/content/1") return pathname?.startsWith("/content");
@@ -3469,20 +3497,20 @@ export function SettingsScreen({
       });
       const data = await res.json();
       if (res.ok && data?.verification) {
-        setIssuedResetCode(data.verification.otpCode);
+        setIssuedResetCode("sent");
         setIssuedResetToken(data.verification.magicToken);
-        setResetOtpCode(data.verification.otpCode);
+        setResetOtpCode("");
         setToast(
-          `Signed security code ${data.verification.otpCode} & magic link generated`
+          `Password verification code & reset link sent to ${currentUser.email}`
         );
         return;
       }
     } catch {
       // Fallback
     }
-    setIssuedResetCode("482910");
-    setResetOtpCode("482910");
-    setToast("Security verification code generated");
+    setIssuedResetCode("sent");
+    setResetOtpCode("");
+    setToast(`Verification code sent to ${currentUser.email}`);
   }
 
   async function saveNewPassword() {
@@ -3540,10 +3568,12 @@ export function SettingsScreen({
         setTotpSetupData({
           secret: data.totp.secret,
           otpauthUri: data.totp.otpauthUri,
-          currentValidCode: data.totp.currentValidCode,
+          currentValidCode: "",
         });
-        setTotpCodeInput(data.totp.currentValidCode || "");
-        setToast("Authenticator TOTP secret generated — verify 6-digit code");
+        setTotpCodeInput("");
+        setToast(
+          "Scan the QR code or enter the Base32 key in your Authenticator app"
+        );
       }
     } catch {
       setToast("Unable to start 2FA setup");
@@ -4092,13 +4122,13 @@ export function SettingsScreen({
                 >
                   <Field
                     label="6-digit security verification code"
-                    placeholder="e.g. 482910"
+                    placeholder="Enter 6-digit code from email"
                     value={resetOtpCode}
                     onChange={(e) => setResetOtpCode(e.target.value)}
                     hint={
                       issuedResetCode
-                        ? `Signed code issued for ${currentUser.email}: ${issuedResetCode}`
-                        : "Click 'Send security code' to generate a signed verification token."
+                        ? `Verification code & reset link sent to ${currentUser.email}. Check your inbox.`
+                        : "Click 'Send security code' to send a signed verification code to your email."
                     }
                   />
                   <Button
@@ -4231,8 +4261,7 @@ export function SettingsScreen({
                           {totpSetupData.secret}
                         </code>
                         <small style={{ color: "#57534e" }}>
-                          Current valid RFC 6238 code:{" "}
-                          <strong>{totpSetupData.currentValidCode}</strong>
+                          URI: <code>{totpSetupData.otpauthUri}</code>
                         </small>
                       </div>
                     </div>
@@ -4387,8 +4416,31 @@ const adminTabs = [
 ] as const;
 
 export function AdminScreen() {
-  const { currentUser, jobs } = useAppState();
+  const router = useRouter();
+  const { currentUser, jobs, isLoggedOut } = useAppState();
   const [tab, setTab] = useState<string>("Overview");
+
+  useEffect(() => {
+    const checkLoggedOut = () => {
+      try {
+        if (
+          isLoggedOut ||
+          window.sessionStorage.getItem("cf_logged_out") === "1"
+        ) {
+          router.replace("/login");
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    checkLoggedOut();
+    window.addEventListener("pageshow", checkLoggedOut);
+    window.addEventListener("popstate", checkLoggedOut);
+    return () => {
+      window.removeEventListener("pageshow", checkLoggedOut);
+      window.removeEventListener("popstate", checkLoggedOut);
+    };
+  }, [isLoggedOut, router]);
   const [search, setSearch] = useState("");
   const [tier, setTier] = useState("All tiers");
   const [confirmUser, setConfirmUser] = useState("");

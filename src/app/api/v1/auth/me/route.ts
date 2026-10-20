@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { getUtcResetWindows, TIER_LIMITS } from "@/lib/policy";
+import { parseSessionCookieFromRequest } from "@/lib/server/auth";
 import { extractActorFromRequest } from "@/lib/server/store";
 
 export async function GET(request: Request) {
+  const session = parseSessionCookieFromRequest(request);
+  const headerUserId =
+    request.headers.get("x-user-id") || request.headers.get("x-demo-user-id");
+
+  if (!session && !headerUserId) {
+    return NextResponse.json(
+      { authenticated: false, error: "Not authenticated" },
+      { status: 401 }
+    );
+  }
+
   const actor = extractActorFromRequest(request);
   const maskedKeys: Record<string, string> = {};
   for (const [provider, env] of Object.entries(
@@ -36,6 +48,7 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
+    authenticated: true,
     user: {
       id: actor.userRecord.id,
       name: actor.userRecord.name,
@@ -52,3 +65,4 @@ export async function GET(request: Request) {
     },
   });
 }
+

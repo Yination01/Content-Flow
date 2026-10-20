@@ -35,8 +35,10 @@ export async function GET(request: Request) {
   const encryptedTokenRef = createEncryptedOAuthRef(
     `oauth_token_${pending.platform}_${code}`
   );
-  const handle =
-    pending.platform === "youtube" ? "@MayaCreates" : "@maya.flow";
+  const handleSlug = user?.name
+    ? `@${user.name.replace(/\s+/g, "")}`
+    : "@JohnpaulOnovo";
+  const handle = handleSlug;
   const expiresAt = new Date(Date.now() + 28 * 86400_000).toISOString();
 
   if (user) {

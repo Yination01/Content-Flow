@@ -1,0 +1,171 @@
+name: ContentFlow Android APK Build
+
+on:
+  push:
+    branches: ["main", "arena/**"]
+  workflow_dispatch:
+
+jobs:
+  build-android-apk:
+    name: Build Signed Android APK ($0 GitHub Actions Free Tier)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Compile & Sign ContentFlow Android APK
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
+          PLATFORM_JAR=$(ls "$ANDROID_HOME/platforms/"*/android.jar | sort -V | tail -n 1)
+          echo "Using build-tools: $BUILD_TOOLS_DIR"
+          echo "Using platform jar: $PLATFORM_JAR"
+
+          WORK_DIR="$(mktemp -d)"
+          mkdir -p "$WORK_DIR/src/app/contentflow/mobile"
+          mkdir -p "$WORK_DIR/res/values"
+          mkdir -p "$WORK_DIR/obj"
+          mkdir -p "$WORK_DIR/dex"
+          mkdir -p dist-apk
+
+          cat > "$WORK_DIR/AndroidManifest.xml" << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="app.contentflow.mobile"
+              android:versionCode="14"
+              android:versionName="1.4.0">
+              <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <application
+                  android:label="@string/app_name"
+                  android:usesCleartextTraffic="false"
+                  android:allowBackup="true">
+                  <activity
+                      android:name="app.contentflow.mobile.MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > "$WORK_DIR/res/values/strings.xml" << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">ContentFlow</string>
+          </resources>
+          EOF
+
+          cat > "$WORK_DIR/src/app/contentflow/mobile/MainActivity.java" << 'EOF'
+          package app.contentflow.mobile;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.view.Window;
+          import android.webkit.CookieManager;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private static final String APP_URL = "https://content-flow-weld-one.vercel.app/dashboard";
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+                  webView = new WebView(this);
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setLoadWithOverviewMode(true);
+                  settings.setUseWideViewPort(true);
+                  settings.setUserAgentString(settings.getUserAgentString() + " ContentFlowAndroid/1.4.0");
+
+                  CookieManager cookieManager = CookieManager.getInstance();
+                  cookieManager.setAcceptCookie(true);
+                  cookieManager.setAcceptThirdPartyCookies(webView, true);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient());
+                  setContentView(webView);
+                  webView.loadUrl(APP_URL);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+          "$BUILD_TOOLS_DIR/aapt2" compile "$WORK_DIR/res/values/strings.xml" -o "$WORK_DIR/compiled_res.zip"
+          "$BUILD_TOOLS_DIR/aapt2" link \
+            -o "$WORK_DIR/unaligned.apk" \
+            -I "$PLATFORM_JAR" \
+            --manifest "$WORK_DIR/AndroidManifest.xml" \
+            --java "$WORK_DIR/src" \
+            "$WORK_DIR/compiled_res.zip"
+
+          javac -source 11 -target 11 \
+            -cp "$PLATFORM_JAR" \
+            -d "$WORK_DIR/obj" \
+            "$WORK_DIR/src/app/contentflow/mobile/R.java" \
+            "$WORK_DIR/src/app/contentflow/mobile/MainActivity.java"
+
+          "$BUILD_TOOLS_DIR/d8" \
+            --lib "$PLATFORM_JAR" \
+            --output "$WORK_DIR/dex" \
+            "$WORK_DIR/obj/app/contentflow/mobile/"*.class
+
+          cp "$WORK_DIR/dex/classes.dex" "$WORK_DIR/classes.dex"
+          (cd "$WORK_DIR" && zip -j unaligned.apk classes.dex)
+
+          "$BUILD_TOOLS_DIR/zipalign" -f 4 "$WORK_DIR/unaligned.apk" "$WORK_DIR/aligned.apk"
+
+          keytool -genkeypair \
+            -keystore "$WORK_DIR/release.keystore" \
+            -alias contentflow \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass contentflow2026 \
+            -keypass contentflow2026 \
+            -dname "CN=ContentFlow, OU=CreatorStudio, O=ContentFlow, L=PortHarcourt, S=Rivers, C=NG"
+
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$WORK_DIR/release.keystore" \
+            --ks-key-alias contentflow \
+            --ks-pass pass:contentflow2026 \
+            --key-pass pass:contentflow2026 \
+            --out dist-apk/contentflow-android.apk \
+            "$WORK_DIR/aligned.apk"
+
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose dist-apk/contentflow-android.apk
+          ls -lh dist-apk/contentflow-android.apk
+
+      - name: Upload Signed Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: contentflow-android-apk
+          path: dist-apk/contentflow-android.apk
+          retention-days: 30
