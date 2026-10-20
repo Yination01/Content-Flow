@@ -576,11 +576,51 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
   const [magicOtpInput, setMagicOtpInput] = useState("");
   const [magicLinkSentUrl, setMagicLinkSentUrl] = useState("");
   const [googleModalOpen, setGoogleModalOpen] = useState(false);
-  const [googleEmail, setGoogleEmail] = useState("johnpaulonovo@gmail.com");
-  const [googleName, setGoogleName] = useState("Johnpaul Onovo");
+  const [googleEmail, setGoogleEmail] = useState("");
+  const [googleName, setGoogleName] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (hash && hash.includes("access_token=")) {
+      const params = new URLSearchParams(hash.replace(/^#/, ""));
+      const accessToken = params.get("access_token");
+      if (accessToken) {
+        void (async () => {
+          try {
+            const res = await fetch("/api/v1/auth/google/callback", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ accessToken }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.user) {
+                updateCurrentUser({
+                  id: data.user.id,
+                  name: data.user.name,
+                  email: data.user.email,
+                  niche: data.user.niche || niche,
+                  tier: data.user.tier,
+                  roles: data.user.roles,
+                  usage: data.user.usage,
+                  connectedPlatforms: {},
+                });
+              }
+              await refreshUser();
+              window.history.replaceState(null, "", window.location.pathname);
+              router.push("/dashboard");
+            }
+          } catch {
+            // Ignore hash exchange error
+          }
+        })();
+      }
+    }
+  }, [niche, refreshUser, router, updateCurrentUser]);
 
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const emailError =
@@ -663,7 +703,7 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
 
   function openMagicLinkDialog() {
     setError("");
-    setMagicEmail(email.trim() || "johnpaulonovo@gmail.com");
+    setMagicEmail(email.trim());
     setMagicModalOpen(true);
   }
 
@@ -756,15 +796,21 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
     setError("");
     setGoogleLoading(true);
     try {
-      const targetEmail = googleEmail.trim() || "johnpaulonovo@gmail.com";
-      const targetName = googleName.trim() || "Johnpaul Onovo";
+      const targetEmail = googleEmail.trim();
+      const targetName = googleName.trim();
 
-      const res = await fetch(
-        `/api/v1/auth/google?email=${encodeURIComponent(targetEmail)}&name=${encodeURIComponent(targetName)}`
-      );
+      const query = targetEmail
+        ? `?email=${encodeURIComponent(targetEmail)}&name=${encodeURIComponent(targetName)}`
+        : "";
+      const res = await fetch(`/api/v1/auth/google${query}`);
       const data = await res.json();
       if (data?.externalOAuth && data?.authorizationUrl) {
         window.location.href = data.authorizationUrl;
+        return;
+      }
+      if (!targetEmail || !targetEmail.includes("@")) {
+        setError("Enter your Google email address to continue.");
+        setGoogleLoading(false);
         return;
       }
       if (data?.callbackUrl) {
@@ -867,7 +913,7 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
               <Field
                 label="Full name / Display name"
                 type="text"
-                placeholder="Johnpaul Onovo"
+                placeholder="Your full name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
                 hint="Displayed across your dashboard, sidebar, and published credits"
@@ -1110,7 +1156,7 @@ export function AuthScreen({ signup = false }: { signup?: boolean }) {
               type="email"
               value={magicEmail}
               onChange={(e) => setMagicEmail(e.target.value)}
-              placeholder="johnpaulonovo@gmail.com"
+              placeholder="you@example.com"
             />
             {magicLinkSentUrl && (
               <>
@@ -1804,13 +1850,13 @@ function PlatformVerificationModal({
           label={`${label} Channel Handle`}
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
-          placeholder="@JohnpaulOnovo"
+          placeholder="@yourchannel"
         />
         <Field
           label="Channel Display Title"
           value={channelTitle}
           onChange={(e) => setChannelTitle(e.target.value)}
-          placeholder="Johnpaul Onovo Studio"
+          placeholder="Creator Studio"
         />
         {!connected && (
           <Field
@@ -4505,9 +4551,9 @@ export function AdminScreen() {
 
   const [userRows, setUserRows] = useState<string[][]>([
     [
-      currentUser.id || "user-superuser",
-      currentUser.name || "Johnpaul Onovo",
-      currentUser.email || "johnpaulonovo@gmail.com",
+      currentUser.id || "admin-1",
+      currentUser.name || "Creator",
+      currentUser.email || "admin@contentflow.app",
       currentUser.tier === "AGENCY"
         ? "Agency"
         : currentUser.tier === "PRO"
@@ -4516,7 +4562,7 @@ export function AdminScreen() {
             ? "Creator"
             : "Free",
       "Active",
-      "Oct 18, 2026",
+      "Oct 20, 2026",
       currentUser.roles.includes("superuser") ? "superuser" : "user",
     ],
   ]);

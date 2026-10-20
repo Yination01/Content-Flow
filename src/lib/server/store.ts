@@ -182,30 +182,8 @@ function isTestRuntime(): boolean {
 
 function createDefaultStore(): ApiStore {
   if (!isTestRuntime()) {
-    const superuserAccount: UserAccountRecord = {
-      id: "user-superuser",
-      name: "Johnpaul Onovo",
-      email: "johnpaulonovo@gmail.com",
-      niche: "Multi-channel content creation",
-      passwordHash: DEFAULT_PASSWORD_HASH,
-      tier: "AGENCY",
-      roles: ["creator", "superuser"],
-      status: "Active",
-      joinedAt: new Date().toISOString(),
-      usage: {
-        dailyAiGenerations: 0,
-        monthlyPostsCreated: 0,
-        monthlyCrossPosts: 0,
-        storageUsedMb: 0,
-      },
-      encryptedByok: {},
-      connectedPlatforms: {},
-    };
-
     return {
-      users: new Map<string, UserAccountRecord>([
-        ["user-superuser", superuserAccount],
-      ]),
+      users: new Map<string, UserAccountRecord>(),
       contents: new Map(),
       jobs: new Map(),
       aiCache: new Map(),
@@ -223,7 +201,7 @@ function createDefaultStore(): ApiStore {
         youtubeUnits: 0,
         tiktokCalls: 0,
         vercelInvocations: 0,
-        supabaseMau: 1,
+        supabaseMau: 0,
         bandwidthGb: 0,
       },
     };
@@ -665,7 +643,7 @@ export function extractActorFromRequest(request: Request): {
   const session = parseSessionCookieFromRequest(request);
   const headerUserId =
     request.headers.get("x-user-id") || request.headers.get("x-demo-user-id");
-  const defaultFallbackId = isTestRuntime() ? "user-1" : "user-superuser";
+  const defaultFallbackId = isTestRuntime() ? "user-1" : "guest-workspace";
   const userId = session?.userId || headerUserId || defaultFallbackId;
 
   const tierHeader = (request.headers.get("x-user-tier") ||
@@ -675,12 +653,14 @@ export function extractActorFromRequest(request: Request): {
 
   let userRecord = store.users.get(userId);
   if (!userRecord) {
-    const email = session?.email || `${userId}@contentflow.app`;
+    const email = session?.email || (headerUserId ? `${userId}@contentflow.app` : "");
     const isSuper = isSuperuserEmail(email) || session?.roles?.includes("superuser");
     const initialRoles: ServerRole[] = isSuper
       ? Array.from(new Set([...(session?.roles || ["creator"]), "superuser" as const]))
       : session?.roles || ["creator"];
-    const fallbackName = formatCreatorDisplayName(session?.name, email);
+    const fallbackName = email
+      ? formatCreatorDisplayName(session?.name, email)
+      : "Creator";
 
     userRecord = {
       id: userId,
@@ -701,7 +681,9 @@ export function extractActorFromRequest(request: Request): {
       encryptedByok: {},
       connectedPlatforms: {},
     };
-    store.users.set(userId, userRecord);
+    if (session?.userId || headerUserId) {
+      store.users.set(userId, userRecord);
+    }
   } else if (session?.name && userRecord.id !== "user-1") {
     userRecord.name = formatCreatorDisplayName(session.name, userRecord.email);
   }

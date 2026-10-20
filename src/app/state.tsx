@@ -68,12 +68,12 @@ export function normalizeDisplayName(name?: string, email?: string): string {
       .replace(/[._-]+/g, " ")
       .replace(/\b\w/g, (c) => c.toUpperCase());
   }
-  return "Johnpaul Onovo";
+  return "Creator";
 }
 
 export function computeInitials(name: string, email?: string): string {
   const normalized = normalizeDisplayName(name, email);
-  if (normalized) {
+  if (normalized && normalized !== "Creator") {
     const parts = normalized.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) {
       return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
@@ -83,7 +83,7 @@ export function computeInitials(name: string, email?: string): string {
   if (email) {
     return email.slice(0, 2).toUpperCase();
   }
-  return "JO";
+  return "CF";
 }
 
 export function formatTierBadgeLabel(
@@ -107,13 +107,13 @@ export function formatTierBadgeLabel(
 }
 
 const DEFAULT_USER_PROFILE: CurrentUserProfile = {
-  id: "user-superuser",
-  name: "Johnpaul Onovo",
-  email: "johnpaulonovo@gmail.com",
+  id: "",
+  name: "Creator",
+  email: "",
   niche: "Multi-channel content creation",
-  tier: "AGENCY",
-  roles: ["creator", "superuser"],
-  initials: "JO",
+  tier: "FREE",
+  roles: ["creator"],
+  initials: "CF",
   twoFactorEnabled: false,
   maskedKeys: {},
   usage: {
@@ -123,10 +123,10 @@ const DEFAULT_USER_PROFILE: CurrentUserProfile = {
     storageUsedMb: 0,
   },
   limits: {
-    dailyAiGenerations: 2000,
-    monthlyPosts: null,
-    monthlyCrossPosts: null,
-    storageMb: 102400,
+    dailyAiGenerations: 10,
+    monthlyPosts: 5,
+    monthlyCrossPosts: 5,
+    storageMb: 100,
   },
   connectedPlatforms: {},
 };
@@ -384,6 +384,20 @@ export function StateProvider({ children }: { children: ReactNode }) {
             };
           }
           applyServerUser(data.user);
+        }
+      } else if (res.status === 401) {
+        let hasStoredSession = false;
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw) as CurrentUserProfile;
+            hasStoredSession = Boolean(parsed && parsed.email);
+          }
+        } catch {
+          // Ignore
+        }
+        if (!hasStoredSession) {
+          setIsLoggedOut(true);
         }
       }
     } catch {

@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   );
   const handleSlug = user?.name
     ? `@${user.name.replace(/\s+/g, "")}`
-    : "@JohnpaulOnovo";
+    : "@CreatorChannel";
   const handle = handleSlug;
   const expiresAt = new Date(Date.now() + 28 * 86400_000).toISOString();
 
