@@ -247,7 +247,27 @@ export function Tabs({
   onChange: (item: string) => void;
 }) {
   return (
-    <div className="tabs" role="tablist">
+    <div
+      className="tabs"
+      role="tablist"
+      onKeyDown={(e) => {
+        const idx = items.indexOf(active);
+        if (idx === -1) return;
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          onChange(items[(idx + 1) % items.length]);
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          onChange(items[(idx - 1 + items.length) % items.length]);
+        } else if (e.key === "Home") {
+          e.preventDefault();
+          onChange(items[0]);
+        } else if (e.key === "End") {
+          e.preventDefault();
+          onChange(items[items.length - 1]);
+        }
+      }}
+    >
       {items.map((item) => (
         <button
           key={item}
@@ -256,10 +276,92 @@ export function Tabs({
           onClick={() => onChange(item)}
           role="tab"
           aria-selected={active === item}
+          tabIndex={active === item ? 0 : -1}
         >
           {item}
         </button>
       ))}
+    </div>
+  );
+}
+
+export function SegmentedOtpInput({
+  value,
+  onChange,
+  length = 6,
+  label = "6-digit verification code",
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  length?: number;
+  label?: string;
+}) {
+  const digits = Array.from({ length }, (_, idx) => value[idx] || "");
+
+  function updateAt(index: number, char: string) {
+    const clean = char.replace(/\D/g, "").slice(-1);
+    const nextArr = [...digits];
+    nextArr[index] = clean;
+    onChange(nextArr.join(""));
+  }
+
+  return (
+    <div className="field">
+      <span className="field__label">{label}</span>
+      <div
+        className="otp-grid"
+        role="group"
+        aria-label={label}
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${length}, minmax(0, 1fr))`,
+          gap: "8px",
+        }}
+      >
+        {digits.map((digit, index) => (
+          <input
+            key={index}
+            type="text"
+            inputMode="numeric"
+            maxLength={1}
+            className="input"
+            aria-label={`Digit ${index + 1}`}
+            value={digit}
+            style={{
+              textAlign: "center",
+              fontWeight: 700,
+              fontSize: "1.05rem",
+              padding: "10px 0",
+            }}
+            onChange={(e) => {
+              const val = e.target.value;
+              updateAt(index, val);
+              if (val && e.currentTarget.nextElementSibling instanceof HTMLElement) {
+                e.currentTarget.nextElementSibling.focus();
+              }
+            }}
+            onKeyDown={(e) => {
+              if (
+                e.key === "Backspace" &&
+                !digits[index] &&
+                e.currentTarget.previousElementSibling instanceof HTMLElement
+              ) {
+                e.currentTarget.previousElementSibling.focus();
+              }
+            }}
+            onPaste={(e) => {
+              const pasted = e.clipboardData
+                .getData("text")
+                .replace(/\D/g, "")
+                .slice(0, length);
+              if (pasted) {
+                e.preventDefault();
+                onChange(pasted);
+              }
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }

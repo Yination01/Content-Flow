@@ -1,24 +1,17 @@
-# ContentFlow
+# ContentFlow (https://content-flow-weld-one.vercel.app)
 
-> ContentFlow is an AI-powered content creation and cross-platform distribution platform built for YouTube and TikTok creators.
+> ContentFlow is a multi-channel creator studio and distribution queue for YouTube and TikTok creators. It turns a single idea into platform-ready scripts, captions, storyboards, subtitles, and scheduled posts under a $0-budget architecture.
 
-## Product Overview
-- **Frontend**: Next.js 14 App Router + Tailwind CSS v4
-- **Backend & Data**: Supabase PostgreSQL (with strict Row-Level Security), Edge Functions, and Cloudflare R2 object storage
-- **AI Routing Policy**:
-  - Plan A: User BYOK (OpenAI / Replicate) with server-side AES-256-GCM envelope encryption or per-request headers
-  - Plan B: Cloudflare Workers AI
-  - Plan C: Hugging Face Inference API fallback
-  - Plan D: Explicit client-side transformers.js fallback notice
-- **Quota & Billing Policy**:
-  - Daily quotas reset at 00:00 UTC; monthly quotas reset on the 1st at 00:00 UTC
-  - User-scoped exact-match AI cache hits do not consume daily generation quota
-  - Tiers: Free ($0), Creator ($9), Pro ($29), Agency ($99) with USD/NGN Paystack server-side price tables
+## Key Public Pages
+- `/` : Marketing landing page, interactive workflow overview, USD/NGN pricing with 30-day free trial, and detailed FAQ (`NO. 01` to `NO. 08`).
+- `/login` : Creator sign-in supporting Email + Password, Email Magic Link / 6-digit code, and Google OAuth.
+- `/signup` : Creator registration with entropy-based password coaching and one-click strong passphrase generation.
+- `/privacy` : Privacy policy covering Row-Level Security (RLS), AES-256-GCM BYOK encryption, and data deletion.
+- `/terms` : Terms of service, FTC Click-to-Cancel trial/subscription rules, and acceptable use.
+- `/api/v1/openapi.json` : Machine-readable OpenAPI 3.1 specification for all `/api/v1/*` endpoints.
 
-## Key Public Routes
-- `/`: Marketing landing page, features, pricing, and FAQ
-- `/login`: Creator sign-in
-- `/signup`: Free workspace registration
-- `/privacy`: Privacy Policy
-- `/terms`: Terms of Service
-- `/notes`: Architecture & Product Policy Notes
+## Core Capabilities
+- **AI Content Studio (`/create`)**: Script, image prompt, and video storyboard generation with Cloudflare Workers AI, Hugging Face, and AES-256-GCM encrypted BYOK (OpenAI / Replicate).
+- **Platform Adaptation (`/content/[id]`)**: YouTube & TikTok metadata adaptation, Virality Score Analyzer, A/B Title & Hook Lab, Auto-Chapter Generator, Teleprompter, and SRT/VTT Subtitle export.
+- **Distribution Queue (`/jobs`)**: Transactional `SKIP LOCKED` job queue with iCal (`.ics`) feed export and batch retry/cancel.
+- **Billing & Trials (`/settings?section=Billing`)**: 1-click 30-day free trial on Creator and Pro plans, Promo Code redemption, and dual-currency (USD/NGN) Paystack checkout.

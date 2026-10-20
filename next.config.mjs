@@ -3,6 +3,9 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
   async headers() {
     return [
       {
@@ -11,6 +14,14 @@ const nextConfig = {
           {
             key: "X-Content-Type-Options",
             value: "nosniff",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "SAMEORIGIN",
+          },
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
           },
           {
             key: "Referrer-Policy",
@@ -23,7 +34,7 @@ const nextConfig = {
         ],
       },
       {
-        source: "/favicon.svg",
+        source: "/(favicon.svg|llms.txt|sw.js)",
         headers: [
           {
             key: "Cache-Control",

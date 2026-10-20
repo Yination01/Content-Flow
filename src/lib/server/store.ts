@@ -103,6 +103,27 @@ export interface UserAccountRecord {
   twoFactorEnabled?: boolean;
   twoFactorSecret?: string;
   twoFactorBackupCodes?: string[];
+  trialTier?: SubscriptionTier;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  trialUsed?: boolean;
+  tierExpiresAt?: string;
+  testTierOverride?: {
+    tier: SubscriptionTier;
+    expiresAt: string;
+  };
+  suspendedUntil?: string | null;
+  suspendReason?: string;
+  isTester?: boolean;
+  testerGrantedBy?: string;
+  testerGrantedAt?: string;
+  isBeta?: boolean;
+  betaRemovedAt?: string;
+  betaRemovedBy?: string;
+  hiddenFromUserList?: boolean;
+  username?: string;
+  lastSeenAt?: string;
+  paidCount?: number;
   connectedPlatforms: Record<
     string,
     {
@@ -115,6 +136,75 @@ export interface UserAccountRecord {
       encryptedTokenRef: string;
     }
   >;
+}
+
+export interface PromoCodeRecord {
+  code: string;
+  tier: SubscriptionTier;
+  rewardDays: number;
+  permanent: boolean;
+  maxUses: number | null;
+  currentUses: number;
+  status: "active" | "revoked" | "expired" | "permanent";
+  expiresAt: string | null;
+  createdAt: string;
+  createdBy: string;
+  redeemedBy: string[];
+}
+
+export interface NoticeRecord {
+  id: string;
+  audience: "all" | "beta" | "testers";
+  title: string;
+  body: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface AdminNoteRecord {
+  id: string;
+  title: string;
+  build?: number;
+  body: string;
+  createdAt: string;
+}
+
+export interface AppConfigRecord {
+  maintenance: boolean;
+  paymentsLive: boolean;
+  minBuild: number;
+  latestBuild: number;
+  downloadUrl: string;
+  appLinksSha256: string;
+}
+
+export interface WaitlistRecord {
+  id: string;
+  position: number;
+  email: string;
+  code: string;
+  referrer?: string;
+  confirmed: boolean;
+  createdAt: string;
+}
+
+export interface CrashReportRecord {
+  id: string;
+  message: string;
+  version: string;
+  build: number;
+  platform: string;
+  createdAt: string;
+}
+
+export interface PendingCheckoutRecord {
+  id: string;
+  userId: string;
+  email: string;
+  tier: SubscriptionTier;
+  amountLabel: string;
+  reference: string;
+  createdAt: string;
 }
 
 export interface ModerationItemRecord {
@@ -163,10 +253,50 @@ export interface ApiStore {
   moderationItems: Map<string, ModerationItemRecord>;
   auditLogs: AuditLogEntry[];
   platformUsage: PlatformUsageSnapshot;
+  promoCodes: Map<string, PromoCodeRecord>;
+  notices: NoticeRecord[];
+  adminNotes: AdminNoteRecord[];
+  appConfig: AppConfigRecord;
+  betaConfig: { enrolmentOpen: boolean };
+  waitlist: WaitlistRecord[];
+  crashReports: CrashReportRecord[];
+  pendingCheckouts: PendingCheckoutRecord[];
+  revokedSessions: Set<string>;
 }
 
 const DB_FILE_PATH = path.join(process.cwd(), ".data", "contentflow-db.json");
-const DEFAULT_PASSWORD_HASH = hashPassword("ContentFlow#2026");
+export const DEFAULT_PASSWORD_HASH = hashPassword("ContentFlow#2026");
+
+function createDefaultAdminNotes(): AdminNoteRecord[] {
+  return [
+    {
+      id: "note-1",
+      title: "Admin Workshop 6-Tab Architecture",
+      build: 16,
+      body: "All timestamps use UTC. Promo codes, 30-day free trials, tester minting, and remote maintenance switches are live.",
+      createdAt: "2026-10-20T00:00:00.000Z",
+    },
+    {
+      id: "note-2",
+      title: "Zero-Budget Guardrails Active",
+      build: 15,
+      body: "Cloudflare Workers AI daily neurons cap at 8,000 (80% soft alert) and 9,500 (95% emergency fallback).",
+      createdAt: "2026-10-19T12:00:00.000Z",
+    },
+  ];
+}
+
+function createDefaultAppConfig(): AppConfigRecord {
+  return {
+    maintenance: false,
+    paymentsLive: true,
+    minBuild: 0,
+    latestBuild: 16,
+    downloadUrl: "https://github.com/Yination01/Content-Flow/actions",
+    appLinksSha256:
+      "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C",
+  };
+}
 
 export function getEnvelopeMasterSecret(): string {
   return (
@@ -204,6 +334,15 @@ function createDefaultStore(): ApiStore {
         supabaseMau: 0,
         bandwidthGb: 0,
       },
+      promoCodes: new Map(),
+      notices: [],
+      adminNotes: createDefaultAdminNotes(),
+      appConfig: createDefaultAppConfig(),
+      betaConfig: { enrolmentOpen: false },
+      waitlist: [],
+      crashReports: [],
+      pendingCheckouts: [],
+      revokedSessions: new Set(),
     };
   }
 
@@ -489,6 +628,15 @@ function createDefaultStore(): ApiStore {
       supabaseMau: 140,
       bandwidthGb: 0.12,
     },
+    promoCodes: new Map(),
+    notices: [],
+    adminNotes: createDefaultAdminNotes(),
+    appConfig: createDefaultAppConfig(),
+    betaConfig: { enrolmentOpen: false },
+    waitlist: [],
+    crashReports: [],
+    pendingCheckouts: [],
+    revokedSessions: new Set(),
   };
 }
 
@@ -539,6 +687,19 @@ function loadStoreFromDisk(): ApiStore {
         ),
         auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
         platformUsage: raw.platformUsage || defaults.platformUsage,
+        promoCodes: new Map(raw.promoCodes || []),
+        notices: Array.isArray(raw.notices) ? raw.notices : [],
+        adminNotes: Array.isArray(raw.adminNotes)
+          ? raw.adminNotes
+          : defaults.adminNotes,
+        appConfig: raw.appConfig || defaults.appConfig,
+        betaConfig: raw.betaConfig || defaults.betaConfig,
+        waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
+        crashReports: Array.isArray(raw.crashReports) ? raw.crashReports : [],
+        pendingCheckouts: Array.isArray(raw.pendingCheckouts)
+          ? raw.pendingCheckouts
+          : [],
+        revokedSessions: new Set(raw.revokedSessions || []),
       };
     }
   } catch {
@@ -567,6 +728,15 @@ export function persistApiStore(): void {
         moderationItems: Array.from(store.moderationItems.entries()),
         auditLogs: store.auditLogs,
         platformUsage: store.platformUsage,
+        promoCodes: Array.from(store.promoCodes.entries()),
+        notices: store.notices,
+        adminNotes: store.adminNotes,
+        appConfig: store.appConfig,
+        betaConfig: store.betaConfig,
+        waitlist: store.waitlist,
+        crashReports: store.crashReports,
+        pendingCheckouts: store.pendingCheckouts,
+        revokedSessions: Array.from(store.revokedSessions.values()),
       },
       null,
       2
@@ -575,6 +745,35 @@ export function persistApiStore(): void {
   } catch {
     // Non-fatal in read-only environments
   }
+}
+
+export function extractRawSessionTokenFromRequest(
+  request: Request
+): string | null {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const match = cookieHeader.match(/(?:^|;\s*)cf_session=([^;]+)/);
+  if (match && match[1]) {
+    try {
+      return decodeURIComponent(match[1].trim());
+    } catch {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+
+export function revokeSessionFromRequest(request: Request): void {
+  const rawToken = extractRawSessionTokenFromRequest(request);
+  if (rawToken) {
+    store.revokedSessions.add(rawToken);
+    persistApiStore();
+  }
+}
+
+export function isRequestSessionRevoked(request: Request): boolean {
+  const rawToken = extractRawSessionTokenFromRequest(request);
+  if (!rawToken) return false;
+  return store.revokedSessions.has(rawToken);
 }
 
 export function getApiStore(): ApiStore {
@@ -640,7 +839,9 @@ export function extractActorFromRequest(request: Request): {
   roles: ServerRole[];
   userRecord: UserAccountRecord;
 } {
-  const session = parseSessionCookieFromRequest(request);
+  const session = isRequestSessionRevoked(request)
+    ? null
+    : parseSessionCookieFromRequest(request);
   const headerUserId =
     request.headers.get("x-user-id") || request.headers.get("x-demo-user-id");
   const defaultFallbackId = isTestRuntime() ? "user-1" : "guest-workspace";

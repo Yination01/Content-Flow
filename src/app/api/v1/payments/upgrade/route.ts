@@ -9,6 +9,20 @@ import {
 export async function POST(request: Request) {
   try {
     const actor = extractActorFromRequest(request);
+    const emailLower = (actor.userRecord.email || "").toLowerCase();
+    if (
+      emailLower.endsWith("@testers.contentflow.app") ||
+      emailLower.endsWith("@testers.poise-app.vercel.app")
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Synthetic tester accounts cannot initiate card checkout. Use a standard creator account or ask an Admin to grant a plan.",
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const targetTier = (
       typeof body?.tier === "string" ? body.tier.toUpperCase() : ""

@@ -86,6 +86,22 @@ export async function GET(_request: Request) {
       "/api/v1/calendar.ics": {
         get: { summary: "Export RFC 5545 iCalendar publishing schedule (.ics)" },
       },
+      "/api/v1/payments/trial": {
+        post: {
+          summary:
+            "Activate a 1-time 30-day free trial on CREATOR or PRO with zero card required upfront",
+        },
+        delete: {
+          summary:
+            "1-click FTC Click-to-Cancel trial or subscription cancellation",
+        },
+      },
+      "/api/v1/admin": {
+        post: {
+          summary:
+            "Poise-spec 6-Tab Admin Server Wall (lookup, grant, revoke, promo_create, promo_list, redeem, tester_mint, notice_publish, app_config, sweep_now)",
+        },
+      },
     },
   };
 
