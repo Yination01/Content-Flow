@@ -144,6 +144,7 @@ const DEFAULT_USER_PROFILE: CurrentUserProfile = {
 
 const STORAGE_KEY = "cf_user_profile_v1";
 const JOBS_STORAGE_KEY = "cf_user_jobs_v1";
+const THEME_STORAGE_KEY = "cf_theme_v1";
 export const STORAGE_VERSION_KEY = "cf_storage_schema_version";
 export const STORAGE_SCHEMA_VERSION = "v2_multi_user_clean";
 
@@ -177,6 +178,9 @@ type AppState = {
   refreshUser: () => Promise<void>;
   logoutUser: () => Promise<void>;
   isLoggedOut: boolean;
+  theme: "light" | "dark";
+  setTheme: (theme: "light" | "dark") => void;
+  toggleTheme: () => void;
 };
 
 const StateContext = createContext<AppState | null>(null);
@@ -187,6 +191,39 @@ export function StateProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] =
     useState<CurrentUserProfile>(DEFAULT_USER_PROFILE);
   const [isLoggedOut, setIsLoggedOut] = useState(false);
+  const [theme, setThemeState] = useState<"light" | "dark">("light");
+
+  const setTheme = useCallback((nextTheme: "light" | "dark") => {
+    setThemeState(nextTheme);
+    try {
+      if (typeof document !== "undefined") {
+        document.documentElement.dataset.theme = nextTheme;
+      }
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => {
+      const next = prev === "dark" ? "light" : "dark";
+      try {
+        if (typeof document !== "undefined") {
+          document.documentElement.dataset.theme = next;
+        }
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(THEME_STORAGE_KEY, next);
+        }
+      } catch {
+        // Ignore
+      }
+      return next;
+    });
+  }, []);
+
 
   function addJobs(platforms: string[], schedule: string, title?: string) {
     const additions = platforms.map((platform, index) => ({
@@ -234,7 +271,9 @@ export function StateProvider({ children }: { children: ReactNode }) {
       );
       const roles = Array.isArray(u.roles)
         ? (u.roles as string[])
-        : prev.roles;
+        : u.isSuperuser === true || u.role === "superuser"
+          ? ["user", "superuser"]
+          : prev.roles;
       const rawTier =
         typeof u.tier === "string"
           ? (u.tier as CurrentUserProfile["tier"])
@@ -271,18 +310,35 @@ export function StateProvider({ children }: { children: ReactNode }) {
         },
       };
 
+      const quotasObj =
+        u.quotas && typeof u.quotas === "object"
+          ? (u.quotas as Record<string, unknown>)
+          : null;
+
       const next: CurrentUserProfile = {
         id: typeof u.id === "string" ? u.id : prev.id,
         name,
         email,
         niche: typeof u.niche === "string" ? u.niche : prev.niche,
         tier,
+        testTierOverride:
+          u.testTierOverride && typeof u.testTierOverride === "object"
+            ? (u.testTierOverride as CurrentUserProfile["testTierOverride"])
+            : u.testTierOverride === null
+              ? null
+              : prev.testTierOverride,
+        trial:
+          u.trial && typeof u.trial === "object"
+            ? (u.trial as CurrentUserProfile["trial"])
+            : prev.trial,
         roles,
         initials: computeInitials(name, email),
         twoFactorEnabled:
           typeof u.twoFactorEnabled === "boolean"
             ? u.twoFactorEnabled
-            : prev.twoFactorEnabled,
+            : typeof u.totpEnabled === "boolean"
+              ? u.totpEnabled
+              : prev.twoFactorEnabled,
         maskedKeys:
           u.maskedKeys && typeof u.maskedKeys === "object"
             ? (u.maskedKeys as Record<string, string>)
@@ -306,7 +362,18 @@ export function StateProvider({ children }: { children: ReactNode }) {
                   Number((u.usage as Record<string, unknown>).storageUsedMb) ||
                   0,
               }
-            : prev.usage,
+            : quotasObj
+              ? {
+                  dailyAiGenerations:
+                    Number(quotasObj.dailyAiGenerationsUsed) ||
+                    prev.usage.dailyAiGenerations,
+                  monthlyPostsCreated:
+                    Number(quotasObj.monthlyVideoExportsUsed) ||
+                    prev.usage.monthlyPostsCreated,
+                  monthlyCrossPosts: prev.usage.monthlyCrossPosts,
+                  storageUsedMb: prev.usage.storageUsedMb,
+                }
+              : prev.usage,
         limits:
           u.limits && typeof u.limits === "object"
             ? {
@@ -387,8 +454,9 @@ export function StateProvider({ children }: { children: ReactNode }) {
       }
       const res = await fetch("/api/v1/auth/me", { cache: "no-store" });
       if (res.ok) {
-        const data = await res.json();
-        if (data?.user) {
+        const payload = await res.json();
+        const serverUser = payload?.data?.user || payload?.user;
+        if (serverUser) {
           let stored: CurrentUserProfile | null = null;
           try {
             const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -397,7 +465,7 @@ export function StateProvider({ children }: { children: ReactNode }) {
             // Ignore
           }
           if (
-            data.user.id === "user-1" &&
+            serverUser.id === "user-1" &&
             stored &&
             stored.id !== "user-1" &&
             stored.email !== "maya@contentflow.app"
@@ -405,17 +473,17 @@ export function StateProvider({ children }: { children: ReactNode }) {
             return;
           }
           // Merge server user with any locally persisted connectedPlatforms & maskedKeys so serverless cold starts never wipe connected channels
-          if (stored && stored.email === data.user.email) {
-            data.user.connectedPlatforms = {
+          if (stored && stored.email === serverUser.email) {
+            serverUser.connectedPlatforms = {
               ...(stored.connectedPlatforms || {}),
-              ...(data.user.connectedPlatforms || {}),
+              ...(serverUser.connectedPlatforms || {}),
             };
-            data.user.maskedKeys = {
+            serverUser.maskedKeys = {
               ...(stored.maskedKeys || {}),
-              ...(data.user.maskedKeys || {}),
+              ...(serverUser.maskedKeys || {}),
             };
           }
-          applyServerUser(data.user);
+          applyServerUser(serverUser);
         }
       } else if (res.status === 401) {
         let hasStoredSession = false;
@@ -457,6 +525,13 @@ export function StateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
+      const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (savedTheme === "dark" || savedTheme === "light") {
+        setThemeState(savedTheme);
+        document.documentElement.dataset.theme = savedTheme;
+      } else {
+        document.documentElement.dataset.theme = "light";
+      }
       if (process.env.NODE_ENV !== "test") {
         migrateLegacyClientStorage(window.localStorage);
       }
@@ -509,6 +584,9 @@ export function StateProvider({ children }: { children: ReactNode }) {
         refreshUser,
         logoutUser,
         isLoggedOut,
+        theme,
+        setTheme,
+        toggleTheme,
       }}
     >
       {children}

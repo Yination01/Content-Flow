@@ -7,6 +7,11 @@ import {
   getApiStore,
   persistApiStore,
 } from "@/lib/server/store";
+import {
+  signOAuthStateToken,
+  parsePlatformsCookieFromRequest,
+  createPlatformsCookieHeader,
+} from "@/lib/server/auth";
 
 export async function POST(request: Request) {
   try {
@@ -22,7 +27,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const state = crypto.randomBytes(24).toString("hex");
+    const exp = Date.now() + 10 * 60 * 1000;
+    const state = signOAuthStateToken({
+      nonce: crypto.randomBytes(12).toString("hex"),
+      userId: actor.userId,
+      platform,
+      exp,
+    });
     const pkce = generatePkceChallenge();
     const store = getApiStore();
 
@@ -31,7 +42,7 @@ export async function POST(request: Request) {
       userId: actor.userId,
       platform,
       codeVerifier: pkce.codeVerifier,
-      expiresAt: Date.now() + 10 * 60 * 1000,
+      expiresAt: exp,
     });
     persistApiStore();
 
@@ -50,6 +61,12 @@ export async function POST(request: Request) {
       codeChallengeMethod: "S256",
       authorizationUrl: oauthInfo.authorizationUrl,
       externalOAuth: oauthInfo.externalOAuth,
+      data: {
+        platform,
+        state,
+        codeChallengeMethod: "S256",
+        authorizationUrl: oauthInfo.authorizationUrl,
+      },
     });
   } catch {
     return NextResponse.json(
@@ -62,9 +79,13 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const actor = extractActorFromRequest(request);
-    const body = await request.json();
-    const platform =
-      typeof body?.platform === "string" ? body.platform.toLowerCase() : "";
+    const url = new URL(request.url);
+    let platform = (url.searchParams.get("platform") || "").toLowerCase();
+    if (!platform) {
+      const body = await request.json().catch(() => ({}));
+      platform =
+        typeof body?.platform === "string" ? body.platform.toLowerCase() : "";
+    }
 
     if (platform !== "youtube" && platform !== "tiktok") {
       return NextResponse.json(
@@ -76,10 +97,50 @@ export async function DELETE(request: Request) {
     delete actor.userRecord.connectedPlatforms[platform];
     persistApiStore();
 
-    return NextResponse.json({
-      disconnected: true,
-      platform,
-    });
+    const cookiePlatforms = parsePlatformsCookieFromRequest(request);
+    delete cookiePlatforms[platform];
+    const merged: Record<
+      string,
+      {
+        connected: boolean;
+        handle: string;
+        channelTitle?: string;
+        scopes?: string[];
+        verifiedAt?: string;
+        expiresAt: string;
+      }
+    > = { ...cookiePlatforms };
+    for (const [k, v] of Object.entries(actor.userRecord.connectedPlatforms)) {
+      if (v) {
+        merged[k] = {
+          connected: v.connected,
+          handle: v.handle,
+          channelTitle: v.channelTitle,
+          scopes: v.scopes,
+          verifiedAt: v.verifiedAt,
+          expiresAt: v.expiresAt,
+        };
+      }
+    }
+    delete merged[platform];
+
+    return NextResponse.json(
+      {
+        disconnected: true,
+        platform,
+        data: {
+          platform,
+          connected: false,
+          connectedPlatforms: merged,
+        },
+      },
+      {
+        status: 200,
+        headers: {
+          "Set-Cookie": createPlatformsCookieHeader(merged),
+        },
+      }
+    );
   } catch {
     return NextResponse.json(
       { error: "Invalid disconnect request." },

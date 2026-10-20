@@ -5,6 +5,10 @@ import {
   getApiStore,
   persistApiStore,
 } from "@/lib/server/store";
+import {
+  parsePlatformsCookieFromRequest,
+  createPlatformsCookieHeader,
+} from "@/lib/server/auth";
 
 export async function POST(request: Request) {
   try {
@@ -13,15 +17,19 @@ export async function POST(request: Request) {
     const platform =
       body?.platform === "tiktok" ? ("tiktok" as const) : ("youtube" as const);
     const state = typeof body?.state === "string" ? body.state.trim() : "";
-    const rawHandle =
-      typeof body?.handle === "string" && body.handle.trim()
-        ? body.handle.trim()
-        : `@${actor.userRecord.name.replace(/\s+/g, "") || "Creator"}`;
-    const handle = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
+    const handleCandidate =
+      (typeof body?.handleOrUrl === "string" && body.handleOrUrl.trim()) ||
+      (typeof body?.handle === "string" && body.handle.trim()) ||
+      `@${actor.userRecord.name.replace(/\s+/g, "") || "Creator"}`;
+    const handle = handleCandidate.startsWith("@")
+      ? handleCandidate
+      : `@${handleCandidate.replace(/^https?:\/\/[^/]+\/@?/i, "")}`;
     const channelTitle =
       typeof body?.channelTitle === "string" && body.channelTitle.trim()
         ? body.channelTitle.trim()
-        : `${actor.userRecord.name} (${platform === "youtube" ? "YouTube" : "TikTok"})`;
+        : `${actor.userRecord.name || handle.replace(/^@/, "")} (${
+            platform === "youtube" ? "YouTube" : "TikTok"
+          })`;
     const scopes = Array.isArray(body?.scopes)
       ? (body.scopes as string[])
       : platform === "youtube"
@@ -67,18 +75,34 @@ export async function POST(request: Request) {
     });
     persistApiStore();
 
-    return NextResponse.json({
-      verified: true,
-      platform,
-      connection: {
-        connected: true,
-        handle,
-        channelTitle,
-        scopes,
-        verifiedAt,
-        expiresAt,
+    const cookiePlatforms = parsePlatformsCookieFromRequest(request);
+    const publicConn = {
+      connected: true,
+      handle,
+      channelTitle,
+      scopes,
+      verifiedAt,
+      expiresAt,
+    };
+    const mergedCookie = {
+      ...cookiePlatforms,
+      [platform]: publicConn,
+    };
+
+    return NextResponse.json(
+      {
+        verified: true,
+        platform,
+        connection: publicConn,
+        data: publicConn,
       },
-    });
+      {
+        status: 200,
+        headers: {
+          "Set-Cookie": createPlatformsCookieHeader(mergedCookie),
+        },
+      }
+    );
   } catch {
     return NextResponse.json(
       { error: "Unable to verify platform connection." },
