@@ -307,7 +307,7 @@ export function verifyMagicLinkToken(token: string): MagicLinkPayload | null {
 
 export function createSessionCookieHeader(
   token: string,
-  maxAgeSeconds: number = 7 * 24 * 60 * 60
+  maxAgeSeconds: number = 30 * 24 * 60 * 60
 ): string {
   const secureFlag = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secureFlag}`;
@@ -333,13 +333,32 @@ export function parseSessionCookieFromRequest(
 
 export const PLATFORMS_COOKIE_NAME = "cf_platforms";
 
+export type SocialPlatformKey =
+  | "youtube"
+  | "tiktok"
+  | "instagram"
+  | "x"
+  | "linkedin"
+  | "facebook";
+
+export interface PlatformChannelAnalytics {
+  followersCount: number;
+  totalViews: number;
+  videosCount: number;
+  engagementRate: string;
+  avgViewsPerPost: number;
+  lastSyncedAt: string;
+}
+
 export interface ConnectedPlatformCookieEntry {
   connected: boolean;
   handle: string;
   channelTitle?: string;
+  profileUrl?: string;
   scopes?: string[];
   verifiedAt?: string;
   expiresAt: string;
+  analytics?: PlatformChannelAnalytics;
 }
 
 export type ConnectedPlatformsCookieMap = Record<
@@ -407,7 +426,7 @@ export function createPlatformsCookieHeader(
 export interface SignedOAuthStatePayload {
   nonce: string;
   userId: string;
-  platform: "youtube" | "tiktok";
+  platform: SocialPlatformKey;
   exp: number;
 }
 

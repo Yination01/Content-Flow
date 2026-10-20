@@ -983,8 +983,13 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const validAudience: "all" | "beta" | "testers" =
-      audience === "beta" || audience === "testers" ? audience : "all";
+    const validAudience: "all" | "free" | "paid" | "beta" | "testers" =
+      audience === "free" ||
+      audience === "paid" ||
+      audience === "beta" ||
+      audience === "testers"
+        ? audience
+        : "all";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const messageBody = typeof body.body === "string" ? body.body.trim() : "";
     if (!title || !messageBody) {

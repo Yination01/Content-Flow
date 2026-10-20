@@ -13,19 +13,30 @@ import type { Status } from "./ui";
 export type Job = {
   id: number;
   content: string;
-  platform: "YouTube" | "TikTok";
+  platform: "YouTube" | "TikTok" | "Instagram" | "X" | "LinkedIn" | "Facebook";
   schedule: string;
   status: Status;
   attempts: number;
 };
 
+export interface PlatformChannelAnalytics {
+  followersCount: number;
+  totalViews: number;
+  videosCount: number;
+  engagementRate: string;
+  avgViewsPerPost: number;
+  lastSyncedAt: string;
+}
+
 export interface ConnectedPlatformInfo {
   connected: boolean;
   handle: string;
   channelTitle?: string;
+  profileUrl?: string;
   scopes?: string[];
   verifiedAt?: string;
   expiresAt: string;
+  analytics?: PlatformChannelAnalytics;
 }
 
 export interface CurrentUserProfile {

@@ -15,6 +15,8 @@ import {
   hashPassword,
   isSuperuserEmail,
   parseSessionCookieFromRequest,
+  type PlatformChannelAnalytics,
+  type SocialPlatformKey,
 } from "./auth";
 
 export interface ContentRecord {
@@ -31,6 +33,11 @@ export interface ContentRecord {
     youtubeTags?: string;
     tiktokCaption?: string;
     tiktokHashtags?: string;
+    instagramCaption?: string;
+    instagramHashtags?: string;
+    xThread?: string;
+    linkedinPost?: string;
+    facebookPost?: string;
     [key: string]: unknown;
   };
   status: "draft" | "ready" | "posted" | "failed";
@@ -48,7 +55,13 @@ export interface JobRecord {
     | "content_repurpose";
   contentId: string | null;
   contentTitle: string;
-  platform: "YouTube" | "TikTok";
+  platform:
+    | "YouTube"
+    | "TikTok"
+    | "Instagram"
+    | "X"
+    | "LinkedIn"
+    | "Facebook";
   payload: Record<string, unknown>;
   status: JobLifecycleStatus;
   priority: number;
@@ -72,6 +85,11 @@ export interface CachedAiResponse {
     youtubeTags: string;
     tiktokCaption: string;
     tiktokHashtags: string;
+    instagramCaption?: string;
+    instagramHashtags?: string;
+    xThread?: string;
+    linkedinPost?: string;
+    facebookPost?: string;
   };
   provider: string;
   tokensUsed: number;
@@ -83,7 +101,7 @@ export interface CachedAiResponse {
 export interface OAuthStatePending {
   state: string;
   userId: string;
-  platform: "youtube" | "tiktok";
+  platform: SocialPlatformKey;
   codeVerifier: string;
   expiresAt: number;
 }
@@ -94,6 +112,7 @@ export interface UserAccountRecord {
   email: string;
   niche: string;
   passwordHash: string;
+  passwordSetByUser?: boolean;
   tier: SubscriptionTier;
   roles: ServerRole[];
   status: "Active" | "Review" | "Suspended";
@@ -130,10 +149,12 @@ export interface UserAccountRecord {
       connected: boolean;
       handle: string;
       channelTitle?: string;
+      profileUrl?: string;
       scopes?: string[];
       verifiedAt?: string;
       expiresAt: string;
       encryptedTokenRef: string;
+      analytics?: PlatformChannelAnalytics;
     }
   >;
 }
@@ -155,7 +176,7 @@ export interface PromoCodeRecord {
 
 export interface NoticeRecord {
   id: string;
-  audience: "all" | "beta" | "testers";
+  audience: "all" | "free" | "paid" | "beta" | "testers";
   title: string;
   body: string;
   createdAt: string;
@@ -361,6 +382,7 @@ function createDefaultStore(): ApiStore {
         email: "maya@contentflow.app",
         niche: "Creative education & mindful productivity",
         passwordHash: DEFAULT_PASSWORD_HASH,
+        passwordSetByUser: true,
         tier: "CREATOR",
         roles: ["creator", "superuser"],
         status: "Active",
@@ -392,6 +414,7 @@ function createDefaultStore(): ApiStore {
         email: "jon@contentflow.app",
         niche: "Tech reviews & creator gear",
         passwordHash: DEFAULT_PASSWORD_HASH,
+        passwordSetByUser: true,
         tier: "PRO",
         roles: ["creator"],
         status: "Active",
@@ -414,6 +437,7 @@ function createDefaultStore(): ApiStore {
         email: "hello@avery.co",
         niche: "Multi-channel video essays",
         passwordHash: DEFAULT_PASSWORD_HASH,
+        passwordSetByUser: true,
         tier: "AGENCY",
         roles: ["creator"],
         status: "Review",
@@ -436,6 +460,7 @@ function createDefaultStore(): ApiStore {
         email: "priya@contentflow.app",
         niche: "Wellness & daily habits",
         passwordHash: DEFAULT_PASSWORD_HASH,
+        passwordSetByUser: true,
         tier: "FREE",
         roles: ["creator"],
         status: "Active",
@@ -870,6 +895,7 @@ export function extractActorFromRequest(request: Request): {
       email,
       niche: "Multi-channel content creation",
       passwordHash: DEFAULT_PASSWORD_HASH,
+      passwordSetByUser: false,
       tier: resolveEffectiveTier(tierHeader || session?.tier || "FREE", initialRoles),
       roles: initialRoles,
       status: "Active",

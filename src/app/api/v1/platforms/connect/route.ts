@@ -11,21 +11,32 @@ import {
   signOAuthStateToken,
   parsePlatformsCookieFromRequest,
   createPlatformsCookieHeader,
+  type SocialPlatformKey,
 } from "@/lib/server/auth";
+
+const VALID_PLATFORMS = new Set<SocialPlatformKey>([
+  "youtube",
+  "tiktok",
+  "instagram",
+  "x",
+  "linkedin",
+  "facebook",
+]);
 
 export async function POST(request: Request) {
   try {
     const actor = extractActorFromRequest(request);
     const body = await request.json();
-    const platform =
+    const rawPlatform =
       typeof body?.platform === "string" ? body.platform.toLowerCase() : "";
 
-    if (platform !== "youtube" && platform !== "tiktok") {
+    if (!VALID_PLATFORMS.has(rawPlatform as SocialPlatformKey)) {
       return NextResponse.json(
-        { error: "Platform must be youtube or tiktok." },
+        { error: "Platform must be youtube, tiktok, instagram, x, linkedin, or facebook." },
         { status: 400 }
       );
     }
+    const platform = rawPlatform as SocialPlatformKey;
 
     const exp = Date.now() + 10 * 60 * 1000;
     const state = signOAuthStateToken({
@@ -87,9 +98,9 @@ export async function DELETE(request: Request) {
         typeof body?.platform === "string" ? body.platform.toLowerCase() : "";
     }
 
-    if (platform !== "youtube" && platform !== "tiktok") {
+    if (!VALID_PLATFORMS.has(platform as SocialPlatformKey)) {
       return NextResponse.json(
-        { error: "Platform must be youtube or tiktok." },
+        { error: "Platform must be youtube, tiktok, instagram, x, linkedin, or facebook." },
         { status: 400 }
       );
     }
@@ -105,9 +116,11 @@ export async function DELETE(request: Request) {
         connected: boolean;
         handle: string;
         channelTitle?: string;
+        profileUrl?: string;
         scopes?: string[];
         verifiedAt?: string;
         expiresAt: string;
+        analytics?: import("@/lib/server/auth").PlatformChannelAnalytics;
       }
     > = { ...cookiePlatforms };
     for (const [k, v] of Object.entries(actor.userRecord.connectedPlatforms)) {
@@ -116,9 +129,11 @@ export async function DELETE(request: Request) {
           connected: v.connected,
           handle: v.handle,
           channelTitle: v.channelTitle,
+          profileUrl: v.profileUrl,
           scopes: v.scopes,
           verifiedAt: v.verifiedAt,
           expiresAt: v.expiresAt,
+          analytics: v.analytics,
         };
       }
     }

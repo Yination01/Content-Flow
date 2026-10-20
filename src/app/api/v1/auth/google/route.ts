@@ -21,9 +21,13 @@ export async function GET(request: Request) {
 
   const callbackUrl = `${url.origin}/api/v1/auth/google/callback?state=${encodeURIComponent(stateToken)}`;
 
-  // 1. Direct Google OAuth 2.0 Client ID if configured
-  const googleClientId = process.env.GOOGLE_CLIENT_ID;
-  if (googleClientId) {
+  // 1. Direct Google OAuth 2.0 Client ID if configured with a valid .apps.googleusercontent.com ID
+  const googleClientId = (process.env.GOOGLE_CLIENT_ID || "").trim();
+  if (
+    googleClientId.endsWith(".apps.googleusercontent.com") &&
+    !googleClientId.includes("placeholder") &&
+    !googleClientId.includes("your-")
+  ) {
     const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     googleAuthUrl.searchParams.set("client_id", googleClientId);
     googleAuthUrl.searchParams.set(
@@ -33,6 +37,7 @@ export async function GET(request: Request) {
     googleAuthUrl.searchParams.set("response_type", "code");
     googleAuthUrl.searchParams.set("scope", "openid email profile");
     googleAuthUrl.searchParams.set("state", stateToken);
+    googleAuthUrl.searchParams.set("prompt", "select_account");
     if (emailHint) {
       googleAuthUrl.searchParams.set("login_hint", emailHint);
     }
